@@ -1,11 +1,14 @@
 Package: ChainBinomial
-Title: What the Package Does (One Line, Title Case)
+Title: Chain Binomial Models for Infectious Disease Transmission
 Version: 0.0.0.9000
-Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
-Description: What the package does (one paragraph).
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+Authors@R:
+    person("Yang", "Yang", email = "yang.yang4@uga.edu", role = c("aut", "cre"))
+Description: Simulation and maximum likelihood estimation for chain binomial
+    models of infectious disease transmission in household and community
+    studies. Supports time-independent and time-dependent covariates,
+    multiple incubation and infectious period distributions, and
+    case-ascertained study designs.
+License: GPL-3
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3

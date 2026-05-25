@@ -1,0 +1,4 @@
+## Only compile these two files; main.c and pop_gen_household.c remain in src/
+## for reference (standalone executables) but are excluded from the R build.
+SOURCES = chainbinomial.c init.c
+OBJECTS = $(SOURCES:.c=.o)

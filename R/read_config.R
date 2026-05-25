@@ -402,17 +402,169 @@ read_config <- function(config_file) {
 
     # -----------------------------------------------------------------------
     # 13.  SAR covariate sets
-    #      Format: n_sets:  (then complex nested covariate blocks if n_sets > 0)
-    #      Full parsing of SAR covariate blocks is not yet implemented.
+    #      Format: n_sets:
+    #        [if n_time_ind_covariate > 0, for each set:]
+    #          sus-ind  v0 v1 ... v{n_tic-1}
+    #          inf-ind  v0 v1 ... v{n_tic-1}
+    #        [if n_time_dep_covariate > 0:]
+    #          lower  upper
+    #          [for each set:]
+    #            sus-dep  m  {m × (start stop v0..v{n_tdc-1})}
+    #            inf-dep  m  {m × (start stop v0..v{n_tdc-1})}
+    #
+    #  The time-dep block uses C's fscanf stream semantics: a token like
+    #  "0.7" read as %d yields 0, leaving ".7" as the next token for %lf.
+    #  A plain whitespace-split tokeniser cannot replicate this, so we use
+    #  a character-level C-style parser (.cfs) for the entire section.
     # -----------------------------------------------------------------------
-    s <- tok_stream("covariates-for-calculating-SAR-provided")
-    cfg$SAR_n_covariate_sets       <- if (s$ok()) s$gi() else 0L
+
+    # Character-level C-style fscanf stream  -----------------------------------
+    .cfs <- local({
+        raw  <- paste(body("covariates-for-calculating-SAR-provided"),
+                      collapse = "\n")
+        raw  <- gsub(":", " ", raw)   # treat colons as whitespace
+        ch   <- strsplit(raw, "")[[1L]]
+        n    <- length(ch)
+        pos  <- 1L
+        ws   <- c(" ", "\t", "\n", "\r")
+        digs <- as.character(0:9)
+
+        skip <- function() {
+            while (pos <= n && ch[pos] %in% ws) pos <<- pos + 1L
+        }
+        list(
+            gi = function() {           # mirrors fscanf("%d")
+                skip()
+                if (pos > n) return(NA_integer_)
+                sign <- 1L
+                if (ch[pos] == "-") { sign <- -1L; pos <<- pos + 1L }
+                else if (ch[pos] == "+") { pos <<- pos + 1L }
+                buf <- character(0L)
+                while (pos <= n && ch[pos] %in% digs) {
+                    buf <- c(buf, ch[pos]); pos <<- pos + 1L
+                }
+                if (!length(buf)) return(NA_integer_)
+                sign * as.integer(paste(buf, collapse = ""))
+            },
+            gd = function() {           # mirrors fscanf("%lf")
+                skip()
+                if (pos > n) return(NA_real_)
+                buf <- character(0L)
+                if (ch[pos] %in% c("-", "+")) {
+                    buf <- c(buf, ch[pos]); pos <<- pos + 1L
+                }
+                while (pos <= n && ch[pos] %in% digs) {
+                    buf <- c(buf, ch[pos]); pos <<- pos + 1L
+                }
+                if (pos <= n && ch[pos] == ".") {
+                    buf <- c(buf, "."); pos <<- pos + 1L
+                    while (pos <= n && ch[pos] %in% digs) {
+                        buf <- c(buf, ch[pos]); pos <<- pos + 1L
+                    }
+                }
+                if (pos <= n && ch[pos] %in% c("e", "E")) {
+                    buf <- c(buf, ch[pos]); pos <<- pos + 1L
+                    if (pos <= n && ch[pos] %in% c("+", "-")) {
+                        buf <- c(buf, ch[pos]); pos <<- pos + 1L
+                    }
+                    while (pos <= n && ch[pos] %in% digs) {
+                        buf <- c(buf, ch[pos]); pos <<- pos + 1L
+                    }
+                }
+                if (!length(buf)) return(NA_real_)
+                as.double(paste(buf, collapse = ""))
+            },
+            gs = function() {           # mirrors fscanf("%s")
+                skip()
+                if (pos > n) return("")
+                buf <- character(0L)
+                while (pos <= n && !ch[pos] %in% ws) {
+                    buf <- c(buf, ch[pos]); pos <<- pos + 1L
+                }
+                paste(buf, collapse = "")
+            },
+            ok = function() {
+                p <- pos
+                while (p <= n && ch[p] %in% ws) p <- p + 1L
+                p <= n
+            }
+        )
+    })
+
+    cfg$SAR_n_covariate_sets       <- if (.cfs$ok()) .cfs$gi() else 0L
     cfg$SAR_sus_time_ind_covariate <- NULL
     cfg$SAR_inf_time_ind_covariate <- NULL
     cfg$SAR_time_dep_lower         <- 0L
     cfg$SAR_time_dep_upper         <- 0L
     cfg$SAR_sus_time_dep_covariate <- NULL
     cfg$SAR_inf_time_dep_covariate <- NULL
+
+    if (isTRUE(cfg$SAR_n_covariate_sets > 0L) && isTRUE(cfg$n_p_mode > 0L)) {
+        n_sets <- cfg$SAR_n_covariate_sets
+        n_tic  <- cfg$n_time_ind_covariate
+        n_tdc  <- cfg$n_time_dep_covariate
+
+        # ---- time-independent covariates (one sus-ind / inf-ind block per set) ----
+        if (n_tic > 0L) {
+            sti <- matrix(0.0, nrow = n_sets, ncol = n_tic)
+            iti <- matrix(0.0, nrow = n_sets, ncol = n_tic)
+            for (nn in seq_len(n_sets)) {
+                .cfs$gs()   # consume "sus-ind" label
+                for (i in seq_len(n_tic)) sti[nn, i] <- .cfs$gd()
+                .cfs$gs()   # consume "inf-ind" label
+                for (i in seq_len(n_tic)) iti[nn, i] <- .cfs$gd()
+            }
+            cfg$SAR_sus_time_ind_covariate <- sti
+            cfg$SAR_inf_time_ind_covariate <- iti
+        }
+
+        # ---- time-dependent covariates ----
+        if (n_tdc > 0L) {
+            cfg$SAR_time_dep_lower <- .cfs$gi()
+            cfg$SAR_time_dep_upper <- .cfs$gi()
+            len <- cfg$SAR_time_dep_upper - cfg$SAR_time_dep_lower + 1L
+
+            std <- vector("list", n_sets)   # [[set]][time_row, cov_col]
+            itd <- vector("list", n_sets)
+            for (nn in seq_len(n_sets)) {
+                std[[nn]] <- matrix(0.0, nrow = len, ncol = n_tdc)
+                itd[[nn]] <- matrix(0.0, nrow = len, ncol = n_tdc)
+            }
+
+            for (nn in seq_len(n_sets)) {
+                # susceptible side
+                .cfs$gs()              # "sus-dep"
+                m_sus <- .cfs$gi()
+                for (i in seq_len(m_sus)) {
+                    st   <- .cfs$gi(); sp <- .cfs$gi()
+                    vals <- vapply(seq_len(n_tdc), function(.) .cfs$gd(), double(1L))
+                    # C: for(t=st; t<=sp; t++) — no-op when sp < st
+                    if (sp >= st) {
+                        for (t in seq.int(st, sp)) {
+                            r <- t - cfg$SAR_time_dep_lower + 1L
+                            std[[nn]][r, ] <- vals
+                        }
+                    }
+                }
+                # infectious side
+                .cfs$gs()              # "inf-dep"
+                m_inf <- .cfs$gi()
+                for (i in seq_len(m_inf)) {
+                    st   <- .cfs$gi(); sp <- .cfs$gi()
+                    vals <- vapply(seq_len(n_tdc), function(.) .cfs$gd(), double(1L))
+                    if (sp >= st) {
+                        for (t in seq.int(st, sp)) {
+                            r <- t - cfg$SAR_time_dep_lower + 1L
+                            itd[[nn]][r, ] <- vals
+                        }
+                    }
+                }
+            }
+
+            cfg$SAR_sus_time_dep_covariate <- std
+            cfg$SAR_inf_time_dep_covariate <- itd
+        }
+    }
 
     # -----------------------------------------------------------------------
     # 14.  R0 multiplier

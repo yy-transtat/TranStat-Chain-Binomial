@@ -392,25 +392,28 @@ estimate_single <- function(pop_list, cfg,
             stringsAsFactors = FALSE
         )
 
-        # ---- R0 ----
+        # ---- R0 multiplier (defined here so adjusted R0 block can reuse) ----
+        mult   <- NULL
+        mult_v <- NULL
         if (isTRUE(cfg$R0_multiplier_provided > 0L) &&
                 !is.null(cfg$R0_multiplier) &&
                 length(cfg$R0_multiplier) >= n_p) {
-
             mult   <- cfg$R0_multiplier[seq_len(n_p)]
             mult_v <- cfg$R0_multiplier_var[seq_len(n_p)]
+        }
 
+        # ---- Unadjusted R0 ----
+        if (!is.null(mult)) {
             R0_val <- sum(mult * SAR0)
 
             # der1[j] = d(R0)/d(logit-param_j) = sum_k mult_k * der_mat_sar[k,j]
-            der1 <- as.numeric(mult %*% der_mat_sar)   # 1 × n_p  times  n_p × n_par
+            der1 <- as.numeric(mult %*% der_mat_sar)
 
             # Variance: quadratic form in var_logit + multiplier uncertainty
-            var_R0 <- as.numeric(der1 %*% V_tr %*% der1) +
-                      sum(SAR0^2 * mult_v)
+            var_R0 <- as.numeric(der1 %*% V_tr %*% der1) + sum(SAR0^2 * mult_v)
             se_R0  <- sqrt(max(0.0, var_R0))
 
-            # CI on log(R0) scale (log-normal approximation), back-transformed
+            # CI on log(R0) scale (log-normal), back-transformed
             lo_R0 <- exp(log(R0_val) - 1.96 * se_R0 / R0_val)
             hi_R0 <- exp(log(R0_val) + 1.96 * se_R0 / R0_val)
 
@@ -422,12 +425,183 @@ estimate_single <- function(pop_list, cfg,
                 row.names = NULL
             )
         }
+
+        # -----------------------------------------------------------------------
+        # Covariate-adjusted SAR and R0 (mirrors core.h lines 1583-1638 and
+        # 1674-1698).
+        #
+        # For each covariate set m and p-mode k the adjusted SAR uses
+        #   logit_f = logit(p_k) + sum_j p2p_cov[j] * log_OR[j]
+        # where p2p_cov is built by organize_p2p_covariate_4SAR() in C,
+        # replicated here in .org_p2p_cov().
+        #
+        # The delta-method gradient (der_mat_adj) is re-computed for every m.
+        # After the loop it holds the LAST set's derivatives; C reuses these
+        # for all adjusted R0 SEs (matching the reference output).
+        # -----------------------------------------------------------------------
+
+        # --- R equivalent of organize_p2p_covariate_4SAR ---
+        .org_p2p_cov <- function(m0, r0) {
+            # m0: 0-based set index; r0: 0-based time index
+            n_tic <- cfg$n_time_ind_covariate
+            n_tdc <- cfg$n_time_dep_covariate
+            n_cov <- n_tic + n_tdc
+            sus_v <- numeric(n_cov)
+            inf_v <- numeric(n_cov)
+            if (n_tic > 0L && !is.null(cfg$SAR_sus_time_ind_covariate)) {
+                sus_v[seq_len(n_tic)] <- cfg$SAR_sus_time_ind_covariate[m0 + 1L, ]
+                inf_v[seq_len(n_tic)] <- cfg$SAR_inf_time_ind_covariate[m0 + 1L, ]
+            }
+            if (n_tdc > 0L && !is.null(cfg$SAR_inf_time_dep_covariate)) {
+                r1  <- r0 + 1L
+                len <- nrow(cfg$SAR_inf_time_dep_covariate[[m0 + 1L]])
+                if (r1 >= 1L && r1 <= len) {
+                    sus_v[n_tic + seq_len(n_tdc)] <-
+                        cfg$SAR_sus_time_dep_covariate[[m0 + 1L]][r1, ]
+                    inf_v[n_tic + seq_len(n_tdc)] <-
+                        cfg$SAR_inf_time_dep_covariate[[m0 + 1L]][r1, ]
+                }
+            }
+            p2p_v <- numeric(cfg$n_p2p_covariate)
+            l     <- 0L
+            if (cfg$n_sus_p2p_covariate > 0L)
+                for (j in seq_len(cfg$n_sus_p2p_covariate)) {
+                    l <- l + 1L; p2p_v[l] <- sus_v[cfg$sus_p2p_covariate[j]]
+                }
+            if (cfg$n_inf_p2p_covariate > 0L)
+                for (j in seq_len(cfg$n_inf_p2p_covariate)) {
+                    l <- l + 1L; p2p_v[l] <- inf_v[cfg$inf_p2p_covariate[j]]
+                }
+            if (!is.null(cfg$interaction) && cfg$n_int_p2p_covariate > 0L)
+                for (j in seq_len(cfg$n_int_p2p_covariate)) {
+                    l <- l + 1L
+                    p2p_v[l] <- sus_v[cfg$interaction[[j]][1L]] *
+                                 inf_v[cfg$interaction[[j]][2L]]
+                }
+            p2p_v
+        }
+
+        sar_adj_df <- NULL
+        r0_adj_df  <- NULL
+
+        has_adj <- isTRUE(cfg$SAR_n_covariate_sets > 0L) &&
+                   (!is.null(cfg$SAR_inf_time_dep_covariate) ||
+                    !is.null(cfg$SAR_inf_time_ind_covariate))
+
+        if (has_adj) {
+            n_sets  <- cfg$SAR_n_covariate_sets
+            n_p2p   <- cfg$n_p2p_covariate
+
+            # Positions (1-based) of p2p parameters in the full parameter vector
+            p2p_off <- n_b + n_p + cfg$n_u_mode + cfg$n_q_mode + cfg$n_c2p_covariate
+            p2p_idx <- p2p_off + seq_len(n_p2p)
+            # log-OR values (= logit-scale coefficients for p2p parameters)
+            coeff_p2p <- if (n_p2p > 0L) est_ll[p2p_idx] else numeric(0L)
+
+            SAR_adj     <- matrix(0.0, nrow = n_sets, ncol = n_p)
+            se_SAR_adj  <- matrix(0.0, nrow = n_sets, ncol = n_p)
+            lo_SAR_adj  <- matrix(0.0, nrow = n_sets, ncol = n_p)
+            hi_SAR_adj  <- matrix(0.0, nrow = n_sets, ncol = n_p)
+            der_mat_adj <- matrix(0.0, nrow = n_p, ncol = n_par)  # overwritten per m
+
+            for (m in seq_len(n_sets)) {       # m: 1-based in R, 0-based in C
+                for (k in seq_len(n_p)) {
+                    p_esc <- 1.0
+                    der   <- numeric(n_par)
+                    lp_k  <- est_ll[n_b + k]
+
+                    for (t in seq.int(eff_lo[k], eff_hi[k])) {
+                        r0     <- t - cfg$SAR_time_dep_lower   # 0-based time index
+                        p2p_cv <- .org_p2p_cov(m - 1L, r0)
+
+                        cov_eff <- if (n_p2p > 0L) sum(p2p_cv * coeff_p2p) else 0.0
+                        lf      <- lp_k + cov_eff
+                        l_idx   <- t - lower_inf + 1L
+                        s_t     <- prob_inf[l_idx]
+                        inv_lf  <- 1.0 / (1.0 + exp(-lf))
+                        ff      <- inv_lf * s_t
+                        f       <- 1.0 - ff
+                        lf_lpk  <- -ff * (1.0 - inv_lf) / f  # d(log f)/d(lp_k)
+
+                        der[n_b + k] <- der[n_b + k] + lf_lpk
+                        if (n_p2p > 0L)
+                            der[p2p_idx] <- der[p2p_idx] + lf_lpk * p2p_cv
+                        p_esc <- p_esc * f
+                    }
+
+                    SAR_adj[m, k]    <- 1.0 - p_esc
+                    der_mat_adj[k, ] <- -p_esc * der
+
+                    d_k     <- der_mat_adj[k, ]
+                    var_sar <- as.numeric(d_k %*% V_tr %*% d_k)
+                    se_SAR_adj[m, k] <- sqrt(max(0.0, var_sar))
+
+                    sar_k    <- max(1e-300, min(1.0 - 1e-300, SAR_adj[m, k]))
+                    se_lgit  <- se_SAR_adj[m, k] / (sar_k * (1.0 - sar_k))
+                    lgit_sar <- log(sar_k / (1.0 - sar_k))
+                    lo_SAR_adj[m, k] <- 1.0 / (1.0 + exp(-(lgit_sar - 1.96 * se_lgit)))
+                    hi_SAR_adj[m, k] <- 1.0 / (1.0 + exp(-(lgit_sar + 1.96 * se_lgit)))
+                }
+            }
+            # der_mat_adj now holds derivatives from the LAST covariate set.
+            # C reuses this same der_mat for all adjusted R0 SEs (see core.h
+            # lines 1682-1683 — der_mat is not reset between R0_adj iterations).
+
+            sar_adj_rows <- lapply(seq_len(n_sets), function(m) {
+                data.frame(
+                    covariate_set = m - 1L,
+                    group         = group_labels,
+                    SAR           = SAR_adj[m, ],
+                    se            = se_SAR_adj[m, ],
+                    ci_lower      = lo_SAR_adj[m, ],
+                    ci_upper      = hi_SAR_adj[m, ],
+                    row.names     = NULL,
+                    stringsAsFactors = FALSE
+                )
+            })
+            sar_adj_df <- do.call(rbind, sar_adj_rows)
+
+            # ---- Adjusted R0 ----
+            if (!is.null(mult)) {
+                # der1 uses der_mat_adj from LAST set (matches C behaviour)
+                der1_last <- as.numeric(mult %*% der_mat_adj)
+
+                R0_adj_val <- numeric(n_sets)
+                se_R0_adj  <- numeric(n_sets)
+                lo_R0_adj  <- numeric(n_sets)
+                hi_R0_adj  <- numeric(n_sets)
+
+                for (m in seq_len(n_sets)) {
+                    R0_adj_val[m] <- sum(mult * SAR_adj[m, ])
+                    der2          <- SAR_adj[m, ]
+                    # var = quadratic form (last-set der1) + multiplier variance
+                    var_R0_adj   <- as.numeric(der1_last %*% V_tr %*% der1_last) +
+                                    sum(der2^2 * mult_v)
+                    se_R0_adj[m] <- sqrt(max(0.0, var_R0_adj))
+                    lo_R0_adj[m] <- exp(log(R0_adj_val[m]) -
+                                        1.96 * se_R0_adj[m] / R0_adj_val[m])
+                    hi_R0_adj[m] <- exp(log(R0_adj_val[m]) +
+                                        1.96 * se_R0_adj[m] / R0_adj_val[m])
+                }
+
+                r0_adj_df <- data.frame(
+                    covariate_set = seq_len(n_sets) - 1L,
+                    R0            = R0_adj_val,
+                    se            = se_R0_adj,
+                    ci_lower      = lo_R0_adj,
+                    ci_upper      = hi_R0_adj,
+                    row.names     = NULL
+                )
+            }
+        }
     }
 
     list(
         estimates      = estimates,
-        SAR            = sar_df,                           # SAR per p2p group
-        R0             = r0_df,                            # R0 (NULL if no multiplier)
+        SAR            = sar_df,                           # unadjusted SAR per p2p group
+        SAR_adjusted   = sar_adj_df,                       # covariate-adjusted SAR (or NULL)
+        R0             = r0_df,                            # unadjusted R0 (or NULL)
+        R0_adjusted    = r0_adj_df,                        # covariate-adjusted R0 (or NULL)
         est_tr         = setNames(est_raw, par_names),     # direct C output (raw scale)
         var            = V_raw,                            # covariance on prob/OR scale
         var_logit      = V_tr,                             # covariance on logit/log scale

@@ -1,37 +1,125 @@
-#' Estimate Chain Binomial Transmission Parameters
+#' Chain-Binomial Transmission Parameter Estimation
 #'
-#' Reads a \code{config.file} and the associated data files it points to,
-#' runs the TranStat maximum likelihood (or EM) estimation algorithm, and
-#' writes results to the output directory specified in \code{config.file}.
+#' Reads a \code{config.file} and the data files it references, then runs
+#' \code{\link{estimate_single}} for every combination of incubation-period
+#' and infectious-period settings declared in the config.  Results from all
+#' combinations are stacked into tidy data frames with two additional index
+#' columns, \code{i_inc} and \code{i_inf}, identifying the setting used.
 #'
-#' The \code{config.file} controls all model settings: transmission parameters,
-#' covariate structure, incubation and infectious period distributions,
-#' optimization method, and file paths for input data and output. See the
-#' TranStat documentation for the full format.
+#' When the config declares \code{n_inc} incubation-period groups and
+#' \code{n_inf} infectious-period groups, \code{n_inc × n_inf} estimation
+#' runs are performed.  The inner loop varies \code{i_inf}; the outer loop
+#' varies \code{i_inc}.
 #'
 #' @param config_file Character. Full path to the \code{config.file} that
 #'   specifies model settings and file paths.
-#' @param serial_number Integer. Identifier for this run, appended to some
-#'   output file names when running multiple replicates. Default 1L.
-#' @param seed Integer. Random seed for Monte Carlo EM sampling procedures.
-#'   Default 12345678L.
+#' @param seed Integer. Random seed for Monte Carlo / MCEM sampling.
+#'   Default \code{12345678L}.
 #'
-#' @return Called for its side effect of writing results to the output
-#'   directory defined in \code{config.file}. Returns \code{NULL} invisibly.
+#' @return A named list with the following elements.  Every data frame has
+#'   \code{i_inc} and \code{i_inf} as its first two columns.
+#' \describe{
+#'   \item{\code{estimates}}{Data frame combining parameter estimates across
+#'     all (i_inc, i_inf) combinations (columns: \code{i_inc}, \code{i_inf},
+#'     \code{parameter}, \code{estimate}, \code{se}, \code{ci_lower},
+#'     \code{ci_upper}, \code{z}, \code{p_value}).}
+#'   \item{\code{SAR}}{Unadjusted secondary attack rates (\code{i_inc},
+#'     \code{i_inf}, \code{group}, \code{SAR}, \code{se}, \code{ci_lower},
+#'     \code{ci_upper}), or \code{NULL} when no p2p transmission parameters
+#'     are present.}
+#'   \item{\code{SAR_adjusted}}{Covariate-adjusted SARs (\code{i_inc},
+#'     \code{i_inf}, \code{covariate_set}, \code{group}, \code{SAR},
+#'     \code{se}, \code{ci_lower}, \code{ci_upper}), or \code{NULL}.}
+#'   \item{\code{R0}}{Unadjusted basic reproduction numbers (\code{i_inc},
+#'     \code{i_inf}, \code{R0}, \code{se}, \code{ci_lower}, \code{ci_upper}),
+#'     or \code{NULL} when no R0 multiplier is provided.}
+#'   \item{\code{R0_adjusted}}{Covariate-adjusted R0 values (\code{i_inc},
+#'     \code{i_inf}, \code{covariate_set}, \code{R0}, \code{se},
+#'     \code{ci_lower}, \code{ci_upper}), or \code{NULL}.}
+#'   \item{\code{log_likelihood}}{Data frame with one row per (i_inc, i_inf)
+#'     combination (\code{i_inc}, \code{i_inf}, \code{log_likelihood},
+#'     \code{error_code}).}
+#' }
+#'
+#' @seealso \code{\link{estimate_single}}, \code{\link{read_config}},
+#'   \code{\link{read_population}}
 #'
 #' @examples
 #' \dontrun{
-#' transtat(
-#'   config_file   = "/path/to/study/config.file",
-#'   serial_number = 1L,
-#'   seed          = 12345678L
-#' )
+#' cfg_file <- system.file("extdata", "CaseStudy2", "config.file",
+#'                         package = "ChainBinomial")
+#' out <- ChainBinomial(cfg_file)
+#' out$estimates
+#' out$SAR
+#' out$R0
+#' out$log_likelihood
 #' }
 #'
 #' @export
-transtat <- function(config_file, serial_number = 1L, seed = 12345678L) {
-    invisible(.Call("r_transtat",
-                    as.character(config_file),
-                    as.integer(serial_number),
-                    as.integer(seed)))
+ChainBinomial <- function(config_file, seed = 12345678L) {
+
+    cfg      <- read_config(config_file)
+    pop_list <- read_population(cfg)
+
+    n_inc <- cfg$n_inc
+    n_inf <- cfg$n_inf
+    n_run <- n_inc * n_inf
+
+    # Pre-allocate result containers (one slot per run)
+    res_estimates    <- vector("list", n_run)
+    res_SAR          <- vector("list", n_run)
+    res_SAR_adjusted <- vector("list", n_run)
+    res_R0           <- vector("list", n_run)
+    res_R0_adjusted  <- vector("list", n_run)
+    res_ll           <- vector("list", n_run)
+
+    # Helper: prepend i_inc / i_inf columns and reset row names
+    prepend_idx <- function(df, ii, jj) {
+        if (is.null(df)) return(NULL)
+        row.names(df) <- NULL
+        cbind(i_inc = ii, i_inf = jj, df, stringsAsFactors = FALSE)
+    }
+
+    idx <- 0L
+    for (ii in seq_len(n_inc)) {
+        for (jj in seq_len(n_inf)) {
+            idx <- idx + 1L
+
+            fit <- estimate_single(pop_list, cfg,
+                                   i_inc = ii,
+                                   i_inf = jj,
+                                   seed  = seed)
+
+            res_estimates[[idx]]    <- prepend_idx(fit$estimates,    ii, jj)
+            res_SAR[[idx]]          <- prepend_idx(fit$SAR,          ii, jj)
+            res_SAR_adjusted[[idx]] <- prepend_idx(fit$SAR_adjusted, ii, jj)
+            res_R0[[idx]]           <- prepend_idx(fit$R0,           ii, jj)
+            res_R0_adjusted[[idx]]  <- prepend_idx(fit$R0_adjusted,  ii, jj)
+            res_ll[[idx]] <- data.frame(
+                i_inc          = ii,
+                i_inf          = jj,
+                log_likelihood = fit$log_likelihood,
+                error_code     = fit$error_code,
+                stringsAsFactors = FALSE
+            )
+        }
+    }
+
+    # Stack non-NULL results
+    bind_results <- function(lst) {
+        lst <- Filter(Negate(is.null), lst)
+        if (length(lst) == 0L) return(NULL)
+        result <- do.call(rbind, lst)
+        row.names(result) <- NULL
+        result
+    }
+
+    list(
+        estimates    = bind_results(res_estimates),
+        SAR          = bind_results(res_SAR),
+        SAR_adjusted = bind_results(res_SAR_adjusted),
+        R0           = bind_results(res_R0),
+        R0_adjusted  = bind_results(res_R0_adjusted),
+        log_likelihood = bind_results(res_ll)
+    )
 }

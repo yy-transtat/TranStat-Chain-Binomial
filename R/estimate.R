@@ -39,6 +39,12 @@
 #'   \item{\code{log_likelihood}}{Data frame with one row per (i_inc, i_inf)
 #'     combination (\code{i_inc}, \code{i_inf}, \code{log_likelihood},
 #'     \code{error_code}).}
+#'   \item{\code{var}}{Data frame with one row per combination. After
+#'     \code{i_inc} and \code{i_inf}, the remaining columns are the
+#'     covariance matrix on the probability / odds-ratio scale, stored
+#'     row-by-row and named \code{par_i.par_j} (e.g. \code{p1.OR1}).}
+#'   \item{\code{var_logit}}{Same layout as \code{var} but for the
+#'     covariance matrix on the logit / log scale.}
 #' }
 #'
 #' @seealso \code{\link{estimate_single}}, \code{\link{read_config}},
@@ -72,11 +78,24 @@ ChainBinomial <- function(config_file, seed = 12345678L) {
     res_R0           <- vector("list", n_run)
     res_R0_adjusted  <- vector("list", n_run)
     res_ll           <- vector("list", n_run)
+    res_var          <- vector("list", n_run)
+    res_var_logit    <- vector("list", n_run)
 
     # Helper: prepend i_inc / i_inf columns and reset row names
     prepend_idx <- function(df, ii, jj) {
         if (is.null(df)) return(NULL)
         row.names(df) <- NULL
+        cbind(i_inc = ii, i_inf = jj, df, stringsAsFactors = FALSE)
+    }
+
+    # Helper: flatten a square matrix row-by-row into a one-row data frame.
+    # Column names are "row_par.col_par" (e.g. "p1.OR1").
+    flatten_mat <- function(mat, ii, jj) {
+        pn   <- rownames(mat)                          # parameter names
+        nms  <- as.vector(outer(pn, pn, paste, sep = "."))   # row-major grid
+        vals <- as.vector(t(mat))                      # row-major values
+        df   <- as.data.frame(matrix(vals, nrow = 1L,
+                                     dimnames = list(NULL, nms)))
         cbind(i_inc = ii, i_inf = jj, df, stringsAsFactors = FALSE)
     }
 
@@ -102,6 +121,8 @@ ChainBinomial <- function(config_file, seed = 12345678L) {
                 error_code     = fit$error_code,
                 stringsAsFactors = FALSE
             )
+            res_var[[idx]]       <- flatten_mat(fit$var,       ii, jj)
+            res_var_logit[[idx]] <- flatten_mat(fit$var_logit, ii, jj)
         }
     }
 
@@ -115,11 +136,13 @@ ChainBinomial <- function(config_file, seed = 12345678L) {
     }
 
     list(
-        estimates    = bind_results(res_estimates),
-        SAR          = bind_results(res_SAR),
-        SAR_adjusted = bind_results(res_SAR_adjusted),
-        R0           = bind_results(res_R0),
-        R0_adjusted  = bind_results(res_R0_adjusted),
-        log_likelihood = bind_results(res_ll)
+        estimates      = bind_results(res_estimates),
+        SAR            = bind_results(res_SAR),
+        SAR_adjusted   = bind_results(res_SAR_adjusted),
+        R0             = bind_results(res_R0),
+        R0_adjusted    = bind_results(res_R0_adjusted),
+        log_likelihood = bind_results(res_ll),
+        var            = bind_results(res_var),
+        var_logit      = bind_results(res_var_logit)
     )
 }

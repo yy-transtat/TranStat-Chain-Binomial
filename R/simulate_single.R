@@ -122,11 +122,28 @@ simulate_single <- function(data_list, cfg,
     if (is.na(cfg2$RxIllness_duration))      cfg2$RxIllness_duration      <- 0L
     if (is.na(cfg2$RxIllness_index_only))    cfg2$RxIllness_index_only    <- 0L
 
+    # --- Coerce columns that C reads with REAL() to double ---
+    # read.table() infers integer for whole-number columns; C requires double.
+    #   pop$weight      → col 12 (1-based), read with REAL()
+    #   TIC value cols  → cols 2..n_tic+1,  read with REAL()
+    #   TDC value cols  → cols 4..n_tdc+3,  read with REAL()
+    pop_df <- data_list$pop
+    pop_df[["weight"]] <- as.double(pop_df[["weight"]])
+
+    tic <- data_list$time_ind_covariate
+    if (!is.null(tic) && cfg$n_time_ind_covariate > 0L)
+        for (j in seq_len(cfg$n_time_ind_covariate))
+            tic[[j + 1L]] <- as.double(tic[[j + 1L]])
+
+    tdc <- data_list$time_dep_covariate
+    if (!is.null(tdc) && cfg$n_time_dep_covariate > 0L)
+        for (j in seq_len(cfg$n_time_dep_covariate))
+            tdc[[j + 3L]] <- as.double(tdc[[j + 3L]])
+
     # --- Extract and coerce contact histories from data_list ---
-    # C reads the offset column with REAL(); coerce to double in case
-    # read.table inferred integer for whole-number columns.
-    # Shared c2p/p2p:       col 5 (community_id start stop mode offset ignore)
-    # Individualised p2p:   col 6 (start stop person_i person_j mode offset ignore)
+    # Offset column also read with REAL(); coerce to double.
+    # Shared c2p/p2p:     col 5 (community_id start stop mode offset ignore)
+    # Individualised p2p: col 6 (start stop person_i person_j mode offset ignore)
     c2p <- data_list$c2p_contact
     if (!is.null(c2p))
         c2p[[5L]] <- as.double(c2p[[5L]])
@@ -139,10 +156,10 @@ simulate_single <- function(data_list, cfg,
 
     # --- Call C ---
     res <- .Call("r_simulate_single",
-                 data_list$pop,
-                 data_list$time_ind_covariate,
+                 pop_df,
+                 tic,
                  data_list$community,
-                 data_list$time_dep_covariate,
+                 tdc,
                  c2p,
                  p2p,
                  cfg2,

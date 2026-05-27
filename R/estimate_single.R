@@ -15,9 +15,9 @@
 #' 0.5}) for probability parameters and \eqn{\log(\mathrm{OR}) = 0}
 #' (i.e., \eqn{\mathrm{OR} = 1}) for covariate coefficients.
 #'
-#' @param pop_list Named list as returned by \code{\link{gen_population}} or
-#'   \code{\link{simulate_single}}.  Must contain \code{$pop},
-#'   \code{$community}, \code{$time_ind_covariate}, and
+#' @param data_list Named list as returned by \code{\link{gen_population}},
+#'   \code{\link{simulate_single}}, or \code{\link{read_population}}.  Must
+#'   contain \code{$pop}, \code{$community}, \code{$time_ind_covariate}, and
 #'   \code{$time_dep_covariate}.  Optional elements \code{$c2p_contact},
 #'   \code{$p2p_contact}, and \code{$impute} are used when non-\code{NULL}.
 #' @param cfg Named list returned by \code{\link{read_config}}.
@@ -47,18 +47,18 @@
 #'                                package = "ChainBinomial"))
 #' pop <- gen_population(n_community = 200, community_size = 5,
 #'                       day_epi_stop = 14, case_ascertained = 1L)
-#' sim <- simulate_single(pop, cfg, seed = 42L)
+#' sim <- simulate_single(dat, cfg, seed = 42L)
 #' fit <- estimate_single(sim, cfg, seed = 42L)
 #' fit$estimates
 #' fit$log_likelihood
 #' }
 #'
 #' @export
-estimate_single <- function(pop_list, cfg,
+estimate_single <- function(data_list, cfg,
                              i_inc = 1L, i_inf = 1L,
                              seed  = 12345678L) {
 
-    stopifnot(is.list(pop_list), is.list(cfg))
+    stopifnot(is.list(data_list), is.list(cfg))
     stopifnot(i_inc >= 1L, i_inc <= cfg$n_inc)
     stopifnot(i_inf >= 1L, i_inf <= cfg$n_inf)
 
@@ -168,16 +168,16 @@ estimate_single <- function(pop_list, cfg,
     #   TIC value cols    → cols 2..n_tic+1, read with REAL()
     #   TDC value cols    → cols 4..n_tdc+3, read with REAL()
     # -----------------------------------------------------------------------
-    pop_df <- pop_list$pop
+    pop_df <- data_list$pop
     pop_df[["weight"]] <- as.double(pop_df[["weight"]])
 
-    tic <- pop_list$time_ind_covariate
+    tic <- data_list$time_ind_covariate
     if (!is.null(tic) && cfg$n_time_ind_covariate > 0L) {
         for (j in seq_len(cfg$n_time_ind_covariate)) {
             tic[[j + 1L]] <- as.double(tic[[j + 1L]])
         }
     }
-    tdc <- pop_list$time_dep_covariate
+    tdc <- data_list$time_dep_covariate
     if (!is.null(tdc) && cfg$n_time_dep_covariate > 0L) {
         for (j in seq_len(cfg$n_time_dep_covariate)) {
             tdc[[j + 3L]] <- as.double(tdc[[j + 3L]])
@@ -189,11 +189,11 @@ estimate_single <- function(pop_list, cfg,
     #                 col 5 (1-based) = offset
     # Individualised p2p: start_day stop_day person_i person_j contact_mode offset ignore
     #                     col 6 (1-based) = offset
-    c2p <- pop_list$c2p_contact
+    c2p <- data_list$c2p_contact
     if (!is.null(c2p)) {
         c2p[[5L]] <- as.double(c2p[[5L]])   # offset col (both shared and individualised)
     }
-    p2p <- pop_list$p2p_contact
+    p2p <- data_list$p2p_contact
     if (!is.null(p2p)) {
         off_col <- if (cfg$common_contact_history_within_community == 1L) 5L else 6L
         p2p[[off_col]] <- as.double(p2p[[off_col]])
@@ -207,11 +207,11 @@ estimate_single <- function(pop_list, cfg,
     raw <- .Call("r_estimate_single",
                  pop_df,
                  tic,
-                 pop_list$community,
+                 data_list$community,
                  tdc,
                  c2p,
                  p2p,
-                 pop_list$impute,
+                 data_list$impute,
                  cfg2,
                  as.integer(i_inc),
                  as.integer(i_inf),

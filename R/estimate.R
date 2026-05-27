@@ -65,7 +65,7 @@
 ChainBinomial <- function(config_file, seed = 12345678L) {
 
     cfg      <- read_config(config_file)
-    pop_list <- read_population(cfg)
+    data_list <- read_population(cfg)
 
     n_inc <- cfg$n_inc
     n_inf <- cfg$n_inf
@@ -104,7 +104,7 @@ ChainBinomial <- function(config_file, seed = 12345678L) {
         for (jj in seq_len(n_inf)) {
             idx <- idx + 1L
 
-            fit <- estimate_single(pop_list, cfg,
+            fit <- estimate_single(data_list, cfg,
                                    i_inc = ii,
                                    i_inf = jj,
                                    seed  = seed)

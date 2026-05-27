@@ -8,18 +8,16 @@
 #' (e.g., stochastically-assigned antiviral treatment) without any file
 #' intermediary.
 #'
-#' @param pop_list Named list returned by \code{\link{gen_population}}.
+#' @param data_list Named list returned by \code{\link{gen_population}} or
+#'   \code{\link{read_population}}.  Must contain \code{$pop},
+#'   \code{$community}, \code{$time_ind_covariate}, and
+#'   \code{$time_dep_covariate}.  Optional elements \code{$c2p_contact} and
+#'   \code{$p2p_contact} are used when non-\code{NULL}; otherwise contact
+#'   histories are auto-generated assuming random mixing within each community.
 #' @param cfg Named list returned by \code{\link{read_config}}.  Must contain
 #'   simulation parameters (\code{perform-simulation = 1},
 #'   \code{simulation-only = 1}) and at least one incubation / infectious
 #'   period group.
-#' @param c2p_contact Data frame of community-to-person contact history, in
-#'   the same format as \code{pop_list$c2p_contact} (see
-#'   \code{\link{read_population}}).  When \code{NULL} (the default), contact
-#'   history is auto-generated assuming random mixing within each community.
-#' @param p2p_contact Data frame of person-to-person contact history, in the
-#'   same format as \code{pop_list$p2p_contact}.  When \code{NULL} (the
-#'   default), contact history is auto-generated assuming random mixing.
 #' @param i_inc Integer (1-based).  Which incubation-period group to use.
 #'   Default \code{1L}.
 #' @param i_inf Integer (1-based).  Which infectious-period group to use.
@@ -57,7 +55,7 @@
 #'
 #' @examples
 #' \dontrun{
-#' pop <- gen_population(
+#' dat <- gen_population(
 #'   n_community      = 100,
 #'   community_size   = 5,
 #'   day_epi_stop     = 14,
@@ -65,7 +63,7 @@
 #' )
 #' cfg <- read_config(system.file("extdata", "CaseStudy1", "config.file",
 #'                                package = "ChainBinomial"))
-#' out <- simulate_single(pop, cfg, seed = 42L)
+#' out <- simulate_single(dat, cfg, seed = 42L)
 #'
 #' # Observed secondary attack rate
 #' contacts <- subset(out$pop, idx == 0 & ignore == 0)
@@ -76,12 +74,11 @@
 #' }
 #'
 #' @export
-simulate_single <- function(pop_list, cfg,
-                             c2p_contact = NULL, p2p_contact = NULL,
+simulate_single <- function(data_list, cfg,
                              i_inc = 1L, i_inf = 1L,
                              seed = 12345678L) {
 
-    stopifnot(is.list(pop_list), is.list(cfg))
+    stopifnot(is.list(data_list), is.list(cfg))
     stopifnot(i_inc >= 1L, i_inc <= cfg$n_inc)
     stopifnot(i_inf >= 1L, i_inf <= cfg$n_inf)
 
@@ -125,24 +122,29 @@ simulate_single <- function(pop_list, cfg,
     if (is.na(cfg2$RxIllness_duration))      cfg2$RxIllness_duration      <- 0L
     if (is.na(cfg2$RxIllness_index_only))    cfg2$RxIllness_index_only    <- 0L
 
-    # --- Coerce offset column to double (C reads it with REAL()) ---
-    # Shared c2p/p2p: col 5 (community_id start stop mode offset ignore)
-    # Individualised p2p: col 6 (start stop person_i person_j mode offset ignore)
-    if (!is.null(c2p_contact))
-        c2p_contact[[5L]] <- as.double(c2p_contact[[5L]])
-    if (!is.null(p2p_contact)) {
+    # --- Extract and coerce contact histories from data_list ---
+    # C reads the offset column with REAL(); coerce to double in case
+    # read.table inferred integer for whole-number columns.
+    # Shared c2p/p2p:       col 5 (community_id start stop mode offset ignore)
+    # Individualised p2p:   col 6 (start stop person_i person_j mode offset ignore)
+    c2p <- data_list$c2p_contact
+    if (!is.null(c2p))
+        c2p[[5L]] <- as.double(c2p[[5L]])
+
+    p2p <- data_list$p2p_contact
+    if (!is.null(p2p)) {
         off_col <- if (cfg$common_contact_history_within_community == 1L) 5L else 6L
-        p2p_contact[[off_col]] <- as.double(p2p_contact[[off_col]])
+        p2p[[off_col]] <- as.double(p2p[[off_col]])
     }
 
     # --- Call C ---
     res <- .Call("r_simulate_single",
-                 pop_list$pop,
-                 pop_list$time_ind_covariate,
-                 pop_list$community,
-                 pop_list$time_dep_covariate,
-                 c2p_contact,
-                 p2p_contact,
+                 data_list$pop,
+                 data_list$time_ind_covariate,
+                 data_list$community,
+                 data_list$time_dep_covariate,
+                 c2p,
+                 p2p,
                  cfg2,
                  as.integer(i_inc),
                  as.integer(i_inf),

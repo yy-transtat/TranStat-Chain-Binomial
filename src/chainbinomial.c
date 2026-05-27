@@ -577,6 +577,7 @@ static double cb_gd(SEXP lst, const char *nm) {
  *   $n_escaped, $n_preimmune  (summary counts)
  * --------------------------------------------------------- */
 SEXP r_simulate_single(SEXP r_pop, SEXP r_tic, SEXP r_community, SEXP r_tdc,
+                       SEXP r_c2p, SEXP r_p2p,
                        SEXP r_cfg, SEXP r_i_inc, SEXP r_i_inf, SEXP r_seed)
 {
     int h, i, j, k, m, r, t;
@@ -585,7 +586,9 @@ SEXP r_simulate_single(SEXP r_pop, SEXP r_tic, SEXP r_community, SEXP r_tdc,
     int len_inc, len_inf;
     int n_sym_idx, n_asym_idx, n_sym_sec, n_asym_sec;
     int n_esc_attacked, n_imm;
-    CONTACT *ptr_contact, *ptr2_contact;
+    double offset_val;
+    int ignore_flag;
+    CONTACT *ptr_contact, *ptr2_contact, *ptr1_contact, *sus_ptr_contact;
     int n_protect = 0;
 
     /* --- 1. Extract indices and seed --- */
@@ -997,26 +1000,127 @@ SEXP r_simulate_single(SEXP r_pop, SEXP r_tic, SEXP r_community, SEXP r_tdc,
     /* --- 9. Allocate global parameter arrays --- */
     create_arrays();
 
-    /* --- 10. Auto-generate contact histories --- */
-    if (cfg_pars.generate_c2p_contact == 1) {
-        for (h = 0; h < n_community; h++) {
-            if (community[h].size > 0)
-                add_c2p_contact_history_to_community(h, community[h].day_epi_start,
-                                                     community[h].day_epi_stop, 0, 0.0);
+    /* --- 10. Build c2p contact history --- */
+    if (r_c2p != R_NilValue) {
+        int n_c2p_rows = length(VECTOR_ELT(r_c2p, 0));
+        int *c2p_col0  = INTEGER(VECTOR_ELT(r_c2p, 0));
+        int *c2p_ds    = INTEGER(VECTOR_ELT(r_c2p, 1));
+        int *c2p_dp    = INTEGER(VECTOR_ELT(r_c2p, 2));
+        int *c2p_cm    = INTEGER(VECTOR_ELT(r_c2p, 3));
+        double *c2p_off = REAL(VECTOR_ELT(r_c2p, 4));
+        int *c2p_ign   = INTEGER(VECTOR_ELT(r_c2p, 5));
+        if (cfg_pars.common_contact_history_within_community == 1) {
+            for (m = 0; m < n_c2p_rows; m++) {
+                h = c2p_col0[m];
+                offset_val  = (cfg_pars.c2p_offset == 0) ? 0.0 : c2p_off[m];
+                ignore_flag = c2p_ign[m];
+                if (ignore_flag != 1 && h >= 0 && h < n_community && community[h].size > 0)
+                    add_c2p_contact_history_to_community(h, c2p_ds[m], c2p_dp[m],
+                                                         c2p_cm[m], offset_val);
+            }
+        } else {
+            for (m = 0; m < n_c2p_rows; m++) {
+                i = c2p_col0[m];
+                offset_val  = (cfg_pars.c2p_offset == 0) ? 0.0 : c2p_off[m];
+                ignore_flag = c2p_ign[m];
+                if (ignore_flag != 1 && i >= 0 && i < p_size && people[i].ignore != 1) {
+                    h = people[i].community;
+                    for (t = c2p_ds[m]; t <= c2p_dp[m]; t++) {
+                        if (t >= community[h].day_epi_start &&
+                            t <= community[h].day_epi_stop  &&
+                            t <= people[i].day_exit)
+                            add_c2p_contact_history(t, people + i, c2p_cm[m], offset_val);
+                    }
+                }
+            }
         }
-    }
-    if (cfg_pars.generate_p2p_contact == 1) {
-        for (h = 0; h < n_community; h++) {
-            if (community[h].size > 0)
-                add_p2p_contact_history_to_community(h, community[h].day_epi_start,
-                                                     community[h].day_epi_stop, 0, 0.0);
+    } else {
+        /* auto-generate: random mixing */
+        if (cfg_pars.generate_c2p_contact == 0 && cfg_pars.silent_run == 0)
+            Rprintf("Warning: c2p_contact absent but generate_c2p_contact=0; auto-generating.\n");
+        if (cfg_pars.common_contact_history_within_community == 1) {
+            for (h = 0; h < n_community; h++)
+                if (community[h].size > 0)
+                    add_c2p_contact_history_to_community(h, community[h].day_epi_start,
+                                                         community[h].day_epi_stop, 0, 0.0);
+        } else {
+            for (i = 0; i < p_size; i++)
+                if (people[i].ignore == 0) {
+                    h = people[i].community;
+                    for (t = community[h].day_epi_start; t <= community[h].day_epi_stop; t++)
+                        if (t <= people[i].day_exit)
+                            add_c2p_contact_history(t, people + i, 0, 0.0);
+                }
         }
     }
 
-    /* --- 11. Run one simulation --- */
+    /* --- 11. Build p2p contact history --- */
+    if (r_p2p != R_NilValue) {
+        int n_p2p_rows = length(VECTOR_ELT(r_p2p, 0));
+        if (cfg_pars.common_contact_history_within_community == 1) {
+            int *p2p_col0  = INTEGER(VECTOR_ELT(r_p2p, 0));
+            int *p2p_ds    = INTEGER(VECTOR_ELT(r_p2p, 1));
+            int *p2p_dp    = INTEGER(VECTOR_ELT(r_p2p, 2));
+            int *p2p_cm    = INTEGER(VECTOR_ELT(r_p2p, 3));
+            double *p2p_off = REAL(VECTOR_ELT(r_p2p, 4));
+            int *p2p_ign   = INTEGER(VECTOR_ELT(r_p2p, 5));
+            for (m = 0; m < n_p2p_rows; m++) {
+                h = p2p_col0[m];
+                offset_val = (cfg_pars.p2p_offset == 0) ? 0.0 : p2p_off[m];
+                if (p2p_ign[m] != 1 && h >= 0 && h < n_community && community[h].size > 0)
+                    add_p2p_contact_history_to_community(h, p2p_ds[m], p2p_dp[m],
+                                                         p2p_cm[m], offset_val);
+            }
+        } else {
+            /* individualized: start_day stop_day person_i person_j contact_mode offset ignore */
+            int *p2p_ds    = INTEGER(VECTOR_ELT(r_p2p, 0));
+            int *p2p_dp    = INTEGER(VECTOR_ELT(r_p2p, 1));
+            int *p2p_pi    = INTEGER(VECTOR_ELT(r_p2p, 2));
+            int *p2p_pj    = INTEGER(VECTOR_ELT(r_p2p, 3));
+            int *p2p_cm    = INTEGER(VECTOR_ELT(r_p2p, 4));
+            double *p2p_off = REAL(VECTOR_ELT(r_p2p, 5));
+            int *p2p_ign   = INTEGER(VECTOR_ELT(r_p2p, 6));
+            for (m = 0; m < n_p2p_rows; m++) {
+                i = p2p_pi[m]; j = p2p_pj[m];
+                offset_val = (cfg_pars.p2p_offset == 0) ? 0.0 : p2p_off[m];
+                if (p2p_ign[m] != 1 &&
+                    i >= 0 && i < p_size && j >= 0 && j < p_size &&
+                    people[i].ignore == 0 && people[j].ignore == 0 &&
+                    people[i].community == people[j].community &&
+                    people[i].id != people[j].id) {
+                    h = people[i].community;
+                    for (t = p2p_ds[m]; t <= p2p_dp[m]; t++) {
+                        if (t >= community[h].day_epi_start &&
+                            t <= community[h].day_epi_stop  &&
+                            t <= people[i].day_exit && t <= people[j].day_exit) {
+                            ptr1_contact = add_p2p_contact_history(
+                                t, people+i, people+j, p2p_cm[m], offset_val);
+                            sus_ptr_contact = add_p2p_contact_history(
+                                t, people+j, people+i, p2p_cm[m], offset_val);
+                            ptr1_contact->pair    = sus_ptr_contact;
+                            sus_ptr_contact->pair = ptr1_contact;
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        /* auto-generate: random mixing */
+        if (cfg_pars.generate_p2p_contact == 0 && cfg_pars.silent_run == 0)
+            Rprintf("Warning: p2p_contact absent but generate_p2p_contact=0; auto-generating.\n");
+        if (cfg_pars.common_contact_history_within_community == 1) {
+            for (h = 0; h < n_community; h++)
+                if (community[h].size > 0)
+                    add_p2p_contact_history_to_community(h, community[h].day_epi_start,
+                                                         community[h].day_epi_stop, 0, 0.0);
+        }
+        /* individualized p2p auto-generation is not supported */
+    }
+
+    /* --- 12. Run one simulation --- */
     simulate();
 
-    /* --- 12. Summary statistics --- */
+    /* --- 13. Summary statistics --- */
     n_sym_idx = n_asym_idx = n_sym_sec = n_asym_sec = n_esc_attacked = n_imm = 0;
     for (i = 0; i < p_size; i++) {
         h = people[i].community;
@@ -1032,7 +1136,7 @@ SEXP r_simulate_single(SEXP r_pop, SEXP r_tic, SEXP r_community, SEXP r_tdc,
         }
     }
 
-    /* --- 13. Build output data frames --- */
+    /* --- 14. Build output data frames --- */
 
     /* pop: 14 columns (original 13 + day_infection) */
     SEXP o_pop_id, o_pop_comm, o_pop_pimm, o_pop_inf, o_pop_sym;

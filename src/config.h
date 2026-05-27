@@ -628,9 +628,9 @@ CFG_PARS get_cfg_pars(FILE *file)
                     len = cfg_pars.SAR_time_dep_upper - cfg_pars.SAR_time_dep_lower + 1;
                     make_3d_array_double(&cfg_pars.SAR_sus_time_dep_covariate, cfg_pars.SAR_n_covariate_sets, len, cfg_pars.n_time_dep_covariate, 0.0); 
                     make_3d_array_double(&cfg_pars.SAR_inf_time_dep_covariate, cfg_pars.SAR_n_covariate_sets, len, cfg_pars.n_time_dep_covariate, 0.0);                
-                    // read in time-dependent covariates for susceptible 
                     for(n=0; n<cfg_pars.SAR_n_covariate_sets; n++)
                     {
+                        // read in time-dependent covariates for susceptible 
                         fscanf(file, "%s  %d", string, &m); 
                         //printf("%s  %d\n", string, m);
                         for(i=0; i<m; i++)

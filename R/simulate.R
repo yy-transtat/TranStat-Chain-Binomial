@@ -118,10 +118,10 @@ simulate_epidemics <- function(data_list, cfg,
         par_names <- est_df$parameter
         wide_vals <- unlist(lapply(seq_len(nrow(est_df)), function(j) {
             p <- par_names[j]
-            c(setNames(est_df$estimate[j],  paste0(p, ".estimate")),
+            c(setNames(est_df$estimate[j],  paste0(p, ".est")),
               setNames(est_df$se[j],         paste0(p, ".se")),
-              setNames(est_df$ci_lower[j],   paste0(p, ".ci_lower")),
-              setNames(est_df$ci_upper[j],   paste0(p, ".ci_upper")))
+              setNames(est_df$ci_lower[j],   paste0(p, ".cil")),
+              setNames(est_df$ci_upper[j],   paste0(p, ".ciu")))
         }))
         res_estimates[[k]] <- cbind(
             data.frame(i_inc = i_inc, i_inf = i_inf, iter = k,

@@ -265,19 +265,29 @@ estimate_single <- function(data_list, cfg,
     # Build positional names (b1, p1, ...) as the fallback.
     # If ini_par_names has the right length and is non-empty, use those instead.
     # -----------------------------------------------------------------------
+    n_base <- cfg$n_b_mode + cfg$n_p_mode + cfg$n_u_mode + cfg$n_q_mode
     par_names <- c(
-        if (cfg$n_b_mode         > 0L) paste0("b",   seq_len(cfg$n_b_mode)),
-        if (cfg$n_p_mode         > 0L) paste0("p",   seq_len(cfg$n_p_mode)),
-        if (cfg$n_u_mode         > 0L) paste0("u",   seq_len(cfg$n_u_mode)),
-        if (cfg$n_q_mode         > 0L) paste0("q",   seq_len(cfg$n_q_mode)),
-        if (cfg$n_c2p_covariate  > 0L) paste0("c2p", seq_len(cfg$n_c2p_covariate)),
-        if (cfg$n_p2p_covariate  > 0L) paste0("p2p", seq_len(cfg$n_p2p_covariate)),
-        if (cfg$n_pat_covariate  > 0L) paste0("pat", seq_len(cfg$n_pat_covariate)),
-        if (cfg$n_imm_covariate  > 0L) paste0("imm", seq_len(cfg$n_imm_covariate))
+        if (cfg$n_b_mode             > 0L) paste0("b",   seq_len(cfg$n_b_mode)),
+        if (cfg$n_p_mode             > 0L) paste0("p",   seq_len(cfg$n_p_mode)),
+        if (cfg$n_u_mode             > 0L) paste0("u",   seq_len(cfg$n_u_mode)),
+        if (cfg$n_q_mode             > 0L) paste0("q",   seq_len(cfg$n_q_mode)),
+        if (cfg$n_c2p_covariate      > 0L)
+            paste0("c2p_x",   cfg$c2p_covariate[seq_len(cfg$n_c2p_covariate)]),
+        if (cfg$n_sus_p2p_covariate  > 0L)
+            paste0("p2p_s_x", cfg$sus_p2p_covariate[seq_len(cfg$n_sus_p2p_covariate)]),
+        if (cfg$n_inf_p2p_covariate  > 0L)
+            paste0("p2p_i_x", cfg$inf_p2p_covariate[seq_len(cfg$n_inf_p2p_covariate)]),
+        if (!is.null(cfg$interaction) && cfg$n_int_p2p_covariate > 0L)
+            vapply(seq_len(cfg$n_int_p2p_covariate), function(j)
+                paste0("p2p_int_x", cfg$interaction[[j]][1L],
+                       "_x",        cfg$interaction[[j]][2L]), character(1L)),
+        if (cfg$n_pat_covariate      > 0L) paste0("pat", seq_len(cfg$n_pat_covariate)),
+        if (cfg$n_imm_covariate      > 0L) paste0("imm", seq_len(cfg$n_imm_covariate))
     )
-    if (length(cfg$ini_par_names) == n_par &&
-            any(nzchar(cfg$ini_par_names)))
-        par_names <- cfg$ini_par_names
+    # Apply ini_par_names only to the b/p/u/q base parameters, not covariates
+    if (n_base > 0L && length(cfg$ini_par_names) >= n_base &&
+            any(nzchar(cfg$ini_par_names[seq_len(n_base)])))
+        par_names[seq_len(n_base)] <- cfg$ini_par_names[seq_len(n_base)]
 
     estimates <- data.frame(
         parameter = par_names,

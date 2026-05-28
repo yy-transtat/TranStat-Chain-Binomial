@@ -212,18 +212,22 @@ SEXP r_gen_population(SEXP r_n_community, SEXP r_community_size,
             l = (runiform(&seed) < prop_contact);
             for (j = 0; j < loc_community[h].size; j++) {
                 i = loc_community[h].member[j];
-                if (loc_people[i].idx == 1) loc_people[i].time_ind_covariate[0] = k;
-                else                        loc_people[i].time_ind_covariate[0] = l;
+                if(case_ascertained == 1){
+                    if (loc_people[i].idx == 1) loc_people[i].time_ind_covariate[0] = k;
+                    else                        loc_people[i].time_ind_covariate[0] = l;
+                }  else loc_people[i].time_ind_covariate[0] = l;
             }
         }
     } else {
         for (h = 0; h < loc_n_community; h++) {
             for (j = 0; j < loc_community[h].size; j++) {
                 i = loc_community[h].member[j];
-                if (loc_people[i].idx == 1)
-                    loc_people[i].time_ind_covariate[0] = (runiform(&seed) < prop_idx);
-                else
-                    loc_people[i].time_ind_covariate[0] = (runiform(&seed) < prop_contact);
+                if(case_ascertained == 1){
+                    if (loc_people[i].idx == 1)
+                        loc_people[i].time_ind_covariate[0] = (runiform(&seed) < prop_idx);
+                    else
+                        loc_people[i].time_ind_covariate[0] = (runiform(&seed) < prop_contact);
+                }  else loc_people[i].time_ind_covariate[0] = (runiform(&seed) < prop_contact);
             }
         }
     }

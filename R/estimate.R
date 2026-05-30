@@ -1,18 +1,27 @@
 #' Chain-Binomial Transmission Parameter Estimation
 #'
-#' Reads a \code{config.file} and the data files it references, then runs
-#' \code{\link{estimate_single}} for every combination of incubation-period
-#' and infectious-period settings declared in the config.  Results from all
-#' combinations are stacked into tidy data frames with two additional index
-#' columns, \code{i_inc} and \code{i_inf}, identifying the setting used.
+#' Runs \code{\link{estimate_single}} for every combination of incubation-period
+#' and infectious-period settings declared in the config, and stacks the results
+#' into tidy data frames with two additional index columns, \code{i_inc} and
+#' \code{i_inf}, identifying the setting used.
 #'
 #' When the config declares \code{n_inc} incubation-period groups and
 #' \code{n_inf} infectious-period groups, \code{n_inc × n_inf} estimation
 #' runs are performed.  The inner loop varies \code{i_inf}; the outer loop
 #' varies \code{i_inc}.
 #'
-#' @param config_file Character. Full path to the \code{config.file} that
-#'   specifies model settings and file paths.
+#' A typical workflow:
+#' \preformatted{
+#' cfg       <- read_config(config_file)
+#' data_list <- read_population(cfg, names_tid = ..., names_tdp = ...)
+#' cfg       <- update_par_labels(cfg, data_list)
+#' out       <- ChainBinomial(cfg, data_list)
+#' }
+#'
+#' @param cfg Named list returned by \code{\link{read_config}}, optionally
+#'   updated with \code{\link{update_par_labels}}.
+#' @param data_list Named list returned by \code{\link{read_population}} or
+#'   \code{\link{gen_population}}.
 #' @param seed Integer. Random seed for Monte Carlo / MCEM sampling.
 #'   Default \code{12345678L}.
 #'
@@ -42,19 +51,22 @@
 #'   \item{\code{var}}{Data frame with one row per combination. After
 #'     \code{i_inc} and \code{i_inf}, the remaining columns are the
 #'     covariance matrix on the probability / odds-ratio scale, stored
-#'     row-by-row and named \code{par_i.par_j} (e.g. \code{p1.OR1}).}
+#'     row-by-row and named \code{par_i.par_j}.}
 #'   \item{\code{var_logit}}{Same layout as \code{var} but for the
 #'     covariance matrix on the logit / log scale.}
 #' }
 #'
 #' @seealso \code{\link{estimate_single}}, \code{\link{read_config}},
-#'   \code{\link{read_population}}
+#'   \code{\link{read_population}}, \code{\link{update_par_labels}}
 #'
 #' @examples
 #' \dontrun{
-#' cfg_file <- system.file("extdata", "CaseStudy2", "config.file",
-#'                         package = "ChainBinomial")
-#' out <- ChainBinomial(cfg_file)
+#' cfg_file  <- system.file("extdata", "CaseStudy2", "config.file",
+#'                          package = "ChainBinomial")
+#' cfg       <- read_config(cfg_file)
+#' data_list <- read_population(cfg)
+#' cfg       <- update_par_labels(cfg, data_list)
+#' out       <- ChainBinomial(cfg, data_list)
 #' out$estimates
 #' out$SAR
 #' out$R0
@@ -62,12 +74,9 @@
 #' }
 #'
 #' @export
-ChainBinomial <- function(config_file, seed = 12345678L,
-                          names_tid = NULL, names_tdp = NULL) {
+ChainBinomial <- function(cfg, data_list, seed = 12345678L) {
 
-    cfg       <- read_config(config_file)
-    data_list <- read_population(cfg, names_tid = names_tid, names_tdp = names_tdp)
-    cfg       <- update_par_labels(cfg, data_list)
+    stopifnot(is.list(cfg), is.list(data_list))
 
     n_inc <- cfg$n_inc
     n_inf <- cfg$n_inf

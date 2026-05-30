@@ -533,5 +533,43 @@ read_config <- function(config_file) {
     cfg$silent_run          <- gi1("run-transtat-silently")
     cfg$write_error_log     <- gi1("write-error-log")
 
+    # -----------------------------------------------------------------------
+    # 16.  Parameter labels  (R-only; not read by C)
+    #
+    #      One label per equi-class parameter in canonical order:
+    #        b / b1,b2,...  |  p / p1,p2,...  |  u / u1,...  |  q / q1,...
+    #        c2p_x{k}  |  p2p_s_x{k}  |  p2p_i_x{k}  |  p2p_int_x{i}_x{j}
+    #        pat / pat1,...  |  imm / imm1,...
+    #
+    #      Base-parameter labels use the "option-2" convention: the trailing
+    #      digit is omitted when there is only one mode (e.g. "b" not "b1").
+    #      Covariate labels carry the global covariate index as a placeholder
+    #      (e.g. "c2p_x3"); estimate_single() replaces these with the actual
+    #      column names from data_list when real covariate names are available.
+    # -----------------------------------------------------------------------
+    .lbl <- function(prefix, n) {
+        if (n == 0L) character(0L)
+        else if (n == 1L) prefix
+        else paste0(prefix, seq_len(n))
+    }
+    cfg$par_labels <- c(
+        .lbl("b",   cfg$n_b_mode),
+        .lbl("p",   cfg$n_p_mode),
+        .lbl("u",   cfg$n_u_mode),
+        .lbl("q",   cfg$n_q_mode),
+        if (cfg$n_c2p_covariate     > 0L)
+            paste0("c2p_x",   cfg$c2p_covariate[seq_len(cfg$n_c2p_covariate)]),
+        if (cfg$n_sus_p2p_covariate > 0L)
+            paste0("p2p_s_x", cfg$sus_p2p_covariate[seq_len(cfg$n_sus_p2p_covariate)]),
+        if (cfg$n_inf_p2p_covariate > 0L)
+            paste0("p2p_i_x", cfg$inf_p2p_covariate[seq_len(cfg$n_inf_p2p_covariate)]),
+        if (!is.null(cfg$interaction) && cfg$n_int_p2p_covariate > 0L)
+            vapply(seq_len(cfg$n_int_p2p_covariate), function(j)
+                paste0("p2p_int_x", cfg$interaction[[j]][1L],
+                       "_x",        cfg$interaction[[j]][2L]), character(1L)),
+        .lbl("pat", cfg$n_pat_covariate),
+        .lbl("imm", cfg$n_imm_covariate)
+    )
+
     cfg
 }

@@ -262,13 +262,25 @@ estimate_single <- function(data_list, cfg,
 
     # -----------------------------------------------------------------------
     # Parameter names.
-    # Covariate parameters are labelled using the column names carried in
-    # data_list$time_ind_covariate and data_list$time_dep_covariate, so that
+    #
+    # Base parameters (b, p, u, q) use the "option-2" convention that matches
+    # cfg$par_labels: the trailing digit is omitted when there is only one mode
+    # (e.g. "b" not "b1", but "b1","b2" when n_b_mode > 1).
+    #
+    # Covariate parameters are labelled using the actual column names carried in
+    # data_list$time_ind_covariate / data_list$time_dep_covariate, so that
     # user-supplied names (e.g. "age", "antiviral") flow through to all output.
     # The fallback when those data frames are unavailable is "x{global_index}".
     # -----------------------------------------------------------------------
 
-    # Helper: global covariate index k (1-based) → column name
+    # Helper: option-2 base-parameter label vector
+    .lbl <- function(prefix, n) {
+        if (n == 0L) character(0L)
+        else if (n == 1L) prefix
+        else paste0(prefix, seq_len(n))
+    }
+
+    # Helper: global covariate index k (1-based) → column name from data_list
     .n_tic <- cfg$n_time_ind_covariate
     cov_label <- function(k) {
         if (k <= .n_tic) {
@@ -286,10 +298,10 @@ estimate_single <- function(data_list, cfg,
 
     n_base <- cfg$n_b_mode + cfg$n_p_mode + cfg$n_u_mode + cfg$n_q_mode
     par_names <- c(
-        if (cfg$n_b_mode             > 0L) paste0("b",      seq_len(cfg$n_b_mode)),
-        if (cfg$n_p_mode             > 0L) paste0("p",      seq_len(cfg$n_p_mode)),
-        if (cfg$n_u_mode             > 0L) paste0("u",      seq_len(cfg$n_u_mode)),
-        if (cfg$n_q_mode             > 0L) paste0("q",      seq_len(cfg$n_q_mode)),
+        .lbl("b", cfg$n_b_mode),
+        .lbl("p", cfg$n_p_mode),
+        .lbl("u", cfg$n_u_mode),
+        .lbl("q", cfg$n_q_mode),
         if (cfg$n_c2p_covariate      > 0L)
             paste0("c2p_",
                    vapply(cfg$c2p_covariate[seq_len(cfg$n_c2p_covariate)],
@@ -308,13 +320,9 @@ estimate_single <- function(data_list, cfg,
                        cov_label(cfg$interaction[[j]][1L]),
                        "_",
                        cov_label(cfg$interaction[[j]][2L])), character(1L)),
-        if (cfg$n_pat_covariate      > 0L) paste0("pat",    seq_len(cfg$n_pat_covariate)),
-        if (cfg$n_imm_covariate      > 0L) paste0("imm",    seq_len(cfg$n_imm_covariate))
+        .lbl("pat", cfg$n_pat_covariate),
+        .lbl("imm", cfg$n_imm_covariate)
     )
-    # Apply ini_par_names only to the b/p/u/q base parameters, not covariates
-    if (n_base > 0L && length(cfg$ini_par_names) >= n_base &&
-            any(nzchar(cfg$ini_par_names[seq_len(n_base)])))
-        par_names[seq_len(n_base)] <- cfg$ini_par_names[seq_len(n_base)]
 
     estimates <- data.frame(
         parameter = par_names,

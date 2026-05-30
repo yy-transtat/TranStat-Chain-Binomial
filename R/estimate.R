@@ -62,10 +62,11 @@
 #' }
 #'
 #' @export
-ChainBinomial <- function(config_file, seed = 12345678L) {
+ChainBinomial <- function(config_file, seed = 12345678L,
+                          names_tid = NULL, names_tdp = NULL) {
 
     cfg      <- read_config(config_file)
-    data_list <- read_population(cfg)
+    data_list <- read_population(cfg, names_tid = names_tid, names_tdp = names_tdp)
 
     n_inc <- cfg$n_inc
     n_inf <- cfg$n_inf

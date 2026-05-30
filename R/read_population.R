@@ -52,6 +52,17 @@
 #' @param cfg Named list returned by \code{\link{read_config}}.  The
 #'   \code{path_in} element determines the directory from which data files are
 #'   read.
+#' @param names_tid Character vector of covariate names for the
+#'   time-independent covariate file.  Must have length equal to
+#'   \code{cfg$n_time_ind_covariate}.  When \code{NULL} (the default) the
+#'   covariates are named \code{x1}, \code{x2}, \ldots, \code{x\{n_tic\}}
+#'   where the indices run sequentially from 1.
+#' @param names_tdp Character vector of covariate names for the
+#'   time-dependent covariate file.  Must have length equal to
+#'   \code{cfg$n_time_dep_covariate}.  When \code{NULL} (the default) the
+#'   covariates are named \code{x\{n_tic+1\}}, \ldots,
+#'   \code{x\{n_tic+n_tdc\}}, continuing the sequential scheme used for the
+#'   time-independent covariates.
 #'
 #' @return A named list with seven elements, each a data frame (or \code{NULL}
 #'   if the corresponding file was absent):
@@ -89,7 +100,7 @@
 #' }
 #'
 #' @export
-read_population <- function(cfg) {
+read_population <- function(cfg, names_tid = NULL, names_tdp = NULL) {
 
     path_in <- cfg$path_in
 
@@ -120,18 +131,43 @@ read_population <- function(cfg) {
 
     # ---- 3.  time_ind_covariate.dat ------------------------------------ #
     n_tic <- cfg$n_time_ind_covariate
+    tic_names_default <- if (n_tic > 0L) paste0("x", seq_len(n_tic)) else character(0L)
+    if (!is.null(names_tid)) {
+        if (length(names_tid) != n_tic)
+            stop("length(names_tid) = ", length(names_tid),
+                 " but there are ", n_tic,
+                 " time-independent covariate(s) in the config.")
+        tic_col_names <- as.character(names_tid)
+    } else {
+        tic_col_names <- tic_names_default
+    }
     time_ind_covariate <- if (n_tic > 0L) {
-        val_cols <- if (n_tic == 1L) "value" else paste0("value_", seq_len(n_tic))
-        read_if_exists("time_ind_covariate.dat", c("id", val_cols))
+        df <- read_if_exists("time_ind_covariate.dat",
+                             c("id", paste0("v_", seq_len(n_tic))))
+        if (!is.null(df)) names(df) <- c("id", tic_col_names)
+        df
     } else {
         NULL
     }
 
     # ---- 4.  time_dep_covariate.dat ------------------------------------ #
     n_tdc <- cfg$n_time_dep_covariate
+    tdc_names_default <- if (n_tdc > 0L) paste0("x", n_tic + seq_len(n_tdc)) else character(0L)
+    if (!is.null(names_tdp)) {
+        if (length(names_tdp) != n_tdc)
+            stop("length(names_tdp) = ", length(names_tdp),
+                 " but there are ", n_tdc,
+                 " time-dependent covariate(s) in the config.")
+        tdc_col_names <- as.character(names_tdp)
+    } else {
+        tdc_col_names <- tdc_names_default
+    }
     time_dep_covariate <- if (n_tdc > 0L) {
-        val_cols <- if (n_tdc == 1L) "value" else paste0("value_", seq_len(n_tdc))
-        read_if_exists("time_dep_covariate.dat", c("id", "day_start", "day_stop", val_cols))
+        df <- read_if_exists("time_dep_covariate.dat",
+                             c("id", "day_start", "day_stop",
+                               paste0("v_", seq_len(n_tdc))))
+        if (!is.null(df)) names(df) <- c("id", "day_start", "day_stop", tdc_col_names)
+        df
     } else {
         NULL
     }

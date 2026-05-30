@@ -59,13 +59,23 @@
 gen_population <- function(n_community, community_size, day_epi_stop,
                            case_ascertained = 0L, cluster_randomization = 0L,
                            seed = 123456789L, prop_idx = 0.8, prop_contact = 0.5) {
-    .Call("r_gen_population",
-          as.integer(n_community),
-          as.integer(community_size),
-          as.integer(day_epi_stop),
-          as.integer(case_ascertained),
-          as.integer(cluster_randomization),
-          as.integer(seed),
-          as.double(prop_idx),
-          as.double(prop_contact))
+    res <- .Call("r_gen_population",
+                 as.integer(n_community),
+                 as.integer(community_size),
+                 as.integer(day_epi_stop),
+                 as.integer(case_ascertained),
+                 as.integer(cluster_randomization),
+                 as.integer(seed),
+                 as.double(prop_idx),
+                 as.double(prop_contact))
+
+    # Rename the single time-independent covariate column to "x1"
+    # and the single time-dependent covariate column to "x2", matching
+    # the default sequential naming used by read_population().
+    if (!is.null(res$time_ind_covariate))
+        names(res$time_ind_covariate) <- c("id", "x1")
+    if (!is.null(res$time_dep_covariate))
+        names(res$time_dep_covariate) <- c("id", "day_start", "day_stop", "x2")
+
+    res
 }

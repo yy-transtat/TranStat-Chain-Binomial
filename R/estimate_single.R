@@ -256,8 +256,9 @@ estimate_single <- function(data_list, cfg,
     ci_lo <- ifelse(is_prob, 1.0 / (1.0 + exp(-lo_ll)), exp(lo_ll))
     ci_hi <- ifelse(is_prob, 1.0 / (1.0 + exp(-hi_ll)), exp(hi_ll))
 
-    # Wald z-statistic (logit/log scale) and two-sided p-value
+    # Wald z-statistic (logit/log scale) — internal only, not in output
     z_stat  <- ifelse(se_tr > 0.0, est_ll / se_tr, NA_real_)
+    # Two-sided p-value; set to NA for base transmission parameters below
     p_value <- 2.0 * pnorm(-abs(z_stat))
 
     # -----------------------------------------------------------------------
@@ -297,6 +298,11 @@ estimate_single <- function(data_list, cfg,
     }
 
     n_base <- cfg$n_b_mode + cfg$n_p_mode + cfg$n_u_mode + cfg$n_q_mode
+
+    # p_value is only meaningful for covariate effects (testing H0: OR = 1).
+    # Base transmission parameters (b, p, u, q) get NA.
+    if (n_base > 0L) p_value[seq_len(n_base)] <- NA_real_
+
     par_names <- c(
         .lbl("b", cfg$n_b_mode),
         .lbl("p", cfg$n_p_mode),
@@ -330,7 +336,6 @@ estimate_single <- function(data_list, cfg,
         se        = se_raw,
         ci_lower  = ci_lo,
         ci_upper  = ci_hi,
-        z         = z_stat,
         p_value   = p_value,
         row.names = NULL,
         stringsAsFactors = FALSE

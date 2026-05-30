@@ -15,13 +15,13 @@
 #' cfg       <- read_config(config_file)
 #' data_list <- read_population(cfg, names_tid = ..., names_tdp = ...)
 #' cfg       <- update_par_labels(cfg, data_list)
-#' out       <- ChainBinomial(cfg, data_list)
+#' out       <- ChainBinomial(data_list, cfg)
 #' }
 #'
-#' @param cfg Named list returned by \code{\link{read_config}}, optionally
-#'   updated with \code{\link{update_par_labels}}.
 #' @param data_list Named list returned by \code{\link{read_population}} or
 #'   \code{\link{gen_population}}.
+#' @param cfg Named list returned by \code{\link{read_config}}, optionally
+#'   updated with \code{\link{update_par_labels}}.
 #' @param seed Integer. Random seed for Monte Carlo / MCEM sampling.
 #'   Default \code{12345678L}.
 #'
@@ -66,7 +66,7 @@
 #' cfg       <- read_config(cfg_file)
 #' data_list <- read_population(cfg)
 #' cfg       <- update_par_labels(cfg, data_list)
-#' out       <- ChainBinomial(cfg, data_list)
+#' out       <- ChainBinomial(data_list, cfg)
 #' out$estimates
 #' out$SAR
 #' out$R0
@@ -74,9 +74,9 @@
 #' }
 #'
 #' @export
-ChainBinomial <- function(cfg, data_list, seed = 12345678L) {
+ChainBinomial <- function(data_list, cfg, seed = 12345678L) {
 
-    stopifnot(is.list(cfg), is.list(data_list))
+    stopifnot(is.list(data_list), is.list(cfg))
 
     n_inc <- cfg$n_inc
     n_inf <- cfg$n_inf

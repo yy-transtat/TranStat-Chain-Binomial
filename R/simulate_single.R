@@ -167,6 +167,15 @@ simulate_single <- function(data_list, cfg,
                  as.integer(i_inf),
                  as.integer(seed))
 
+    # --- Restore covariate column names (C returns hardcoded names) ---
+    # The C engine constructs new data frames with generic column names such as
+    # "value"; copy the names from the (possibly user-renamed) input so that
+    # downstream calls to estimate_single() see the correct covariate labels.
+    if (!is.null(tic) && !is.null(res$time_ind_covariate))
+        names(res$time_ind_covariate) <- names(tic)
+    if (!is.null(tdc) && !is.null(res$time_dep_covariate))
+        names(res$time_dep_covariate) <- names(tdc)
+
     # --- Attach imputation table for asymptomatic infections ---
     res$impute <- gen_impute(res, cfg, i_inc = i_inc)
 

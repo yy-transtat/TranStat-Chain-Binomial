@@ -71,22 +71,33 @@ update_var_par_labels <- function(cfg, data_list = NULL) {
 
     # -------------------------------------------------------------------
     # 1.  Build covariate_labels (one entry per global covariate index)
+    #
+    #     Three cases:
+    #       (a) data_list provided  → read column names from the data frames.
+    #       (b) data_list = NULL and cfg$covariate_labels already has the
+    #           correct length → reuse it (real names must not be erased).
+    #       (c) data_list = NULL and labels absent or wrong length → set
+    #           "x{k}" placeholders (happens inside read_config()).
     # -------------------------------------------------------------------
-    cov_lbl <- character(n_cov)
-
-    tic <- if (!is.null(data_list)) data_list$time_ind_covariate else NULL
-    for (k in seq_len(n_tic)) {
-        cov_lbl[k] <-
-            if (!is.null(tic) && ncol(tic) >= k + 1L) names(tic)[k + 1L]
-            else paste0("x", k)
-    }
-
-    tdc <- if (!is.null(data_list)) data_list$time_dep_covariate else NULL
-    for (k in seq_len(n_tdc)) {
-        col <- k + 3L   # columns 1-3 are id / day_start / day_stop
-        cov_lbl[n_tic + k] <-
-            if (!is.null(tdc) && ncol(tdc) >= col) names(tdc)[col]
-            else paste0("x", n_tic + k)
+    if (!is.null(data_list)) {
+        cov_lbl <- character(n_cov)
+        tic <- data_list$time_ind_covariate
+        for (k in seq_len(n_tic))
+            cov_lbl[k] <-
+                if (!is.null(tic) && ncol(tic) >= k + 1L) names(tic)[k + 1L]
+                else paste0("x", k)
+        tdc <- data_list$time_dep_covariate
+        for (k in seq_len(n_tdc)) {
+            col <- k + 3L   # columns 1-3 are id / day_start / day_stop
+            cov_lbl[n_tic + k] <-
+                if (!is.null(tdc) && ncol(tdc) >= col) names(tdc)[col]
+                else paste0("x", n_tic + k)
+        }
+    } else if (!is.null(cfg$covariate_labels) &&
+               length(cfg$covariate_labels) == n_cov) {
+        cov_lbl <- cfg$covariate_labels   # preserve real names already present
+    } else {
+        cov_lbl <- if (n_cov > 0L) paste0("x", seq_len(n_cov)) else character(0L)
     }
 
     cfg$covariate_labels <- cov_lbl

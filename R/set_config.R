@@ -273,62 +273,20 @@ set_config <- function(cfg,
     # -----------------------------------------------------------------------
     # 7.  par_equiclass  — members may be integer indices or parameter labels
     # -----------------------------------------------------------------------
+
+    # Refresh covariate_labels and par_labels now, so that any covariate-spec
+    # changes made in sections 1-6 are reflected before we try to resolve
+    # character parameter labels in par_equiclass.
+    # update_var_par_labels() is safe to call here regardless of whether
+    # data_list is NULL: it preserves existing covariate_labels when
+    # data_list = NULL and they already have the correct length.
+    cfg_copy <- update_var_par_labels(cfg_copy, data_list)
+
     if (!is.null(par_equiclass)) {
 
-        # Build full parameter label vector (one entry per sequential index)
-        .lbl <- function(prefix, n) {
-            if (n == 0L) character(0L)
-            else if (n == 1L) prefix
-            else paste0(prefix, seq_len(n))
-        }
-
-        # Helper: global covariate index → label (uses data_list if available)
-        n_tic_cfg <- cfg_copy$n_time_ind_covariate
-        .cov_lbl <- function(k) {
-            if (!is.null(data_list)) {
-                if (k <= n_tic_cfg) {
-                    tic <- data_list$time_ind_covariate
-                    if (!is.null(tic) && ncol(tic) >= k + 1L)
-                        return(names(tic)[k + 1L])
-                } else {
-                    tdc <- data_list$time_dep_covariate
-                    col <- k - n_tic_cfg + 3L
-                    if (!is.null(tdc) && ncol(tdc) >= col)
-                        return(names(tdc)[col])
-                }
-            }
-            paste0("x", k)
-        }
-        .vcov <- function(ids, n) {
-            if (n == 0L) character(0L)
-            else vapply(ids[seq_len(n)], .cov_lbl, character(1L))
-        }
-
-        full_par_labels <- c(
-            .lbl("b",   cfg_copy$n_b_mode),
-            .lbl("p",   cfg_copy$n_p_mode),
-            .lbl("u",   cfg_copy$n_u_mode),
-            .lbl("q",   cfg_copy$n_q_mode),
-            if (cfg_copy$n_c2p_covariate     > 0L)
-                paste0("c2p_",
-                       .vcov(cfg_copy$c2p_covariate, cfg_copy$n_c2p_covariate)),
-            if (cfg_copy$n_sus_p2p_covariate > 0L)
-                paste0("p2p_s_",
-                       .vcov(cfg_copy$sus_p2p_covariate, cfg_copy$n_sus_p2p_covariate)),
-            if (cfg_copy$n_inf_p2p_covariate > 0L)
-                paste0("p2p_i_",
-                       .vcov(cfg_copy$inf_p2p_covariate, cfg_copy$n_inf_p2p_covariate)),
-            if (!is.null(cfg_copy$interaction) && cfg_copy$n_int_p2p_covariate > 0L)
-                vapply(seq_len(cfg_copy$n_int_p2p_covariate), function(j)
-                    paste0("p2p_int_",
-                           .cov_lbl(cfg_copy$interaction[[j]][1L]),
-                           "_",
-                           .cov_lbl(cfg_copy$interaction[[j]][2L])), character(1L)),
-            .lbl("pat", cfg_copy$n_pat_covariate),
-            .lbl("imm", cfg_copy$n_imm_covariate)
-        )
-
-        lbl2idx <- setNames(seq_along(full_par_labels), full_par_labels)
+        # cfg_copy$par_labels is current — use it directly as the lookup table.
+        full_par_labels <- cfg_copy$par_labels
+        lbl2idx         <- setNames(seq_along(full_par_labels), full_par_labels)
 
         resolved <- lapply(par_equiclass, function(ec) {
             m <- ec$member
@@ -352,9 +310,7 @@ set_config <- function(cfg,
     }
 
     # -----------------------------------------------------------------------
-    # 8.  Refresh covariate_labels and par_labels
-    #     Always call update_var_par_labels() so both label vectors stay
-    #     consistent with the (possibly updated) covariate specs.
+    # 8.  Final label refresh (safety net — idempotent given the call above).
     # -----------------------------------------------------------------------
     cfg_copy <- update_var_par_labels(cfg_copy, data_list)
 

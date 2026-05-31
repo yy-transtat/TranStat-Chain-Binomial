@@ -262,6 +262,11 @@ set_config <- function(cfg,
             cfg_copy$n_sus_p2p_covariate +
             cfg_copy$n_inf_p2p_covariate +
             cfg_copy$n_int_p2p_covariate)
+        cfg_copy$n_covariate <- as.integer(
+            cfg_copy$n_c2p_covariate +
+            cfg_copy$n_p2p_covariate +
+            cfg_copy$n_pat_covariate +
+            cfg_copy$n_imm_covariate)
         cfg_copy$n_par <- as.integer(
             cfg_copy$n_b_mode        + cfg_copy$n_p_mode       +
             cfg_copy$n_u_mode        + cfg_copy$n_q_mode        +
@@ -315,4 +320,50 @@ set_config <- function(cfg,
     cfg_copy <- update_var_par_labels(cfg_copy, data_list)
 
     cfg_copy
+}
+
+# print covariate or parameter labels for given indices
+pr.label <- function(id, labels){
+  ifelse(length(id)==1, labels[id],
+         paste(labels[id], collapse = ', '))
+}
+# a function displaying defined types of covariates and the numbers of these covariates
+show_cfg_covariates <- function(cfg) {
+  data.frame(Type_Covariates=
+               c('time-independent', 'time-dependent',
+                 'c2p', 'p2p susceptibility',
+                 'p2p infectivity', 'p2p', 'pathogenicity',
+                 'preseason immunity', 'all covariates'),
+             Size=
+               c(cfg$n_time_ind_covariate, cfg$n_time_dep_covariate,
+                 cfg$n_c2p_covariate, cfg$n_sus_p2p_covariate,
+                 cfg$n_inf_p2p_covariate, cfg$n_p2p_covariate, cfg$n_pat_covariate,
+                 cfg$n_imm_covariate, cfg$n_covariate),
+             Variables=
+               c('', '',
+                 paste(cfg$c2p_covariate, collapse = ','),
+                 paste(cfg$sus_p2p_covariate, collapse = ','),
+                 paste(cfg$inf_p2p_covariate, collapse = ','),
+                 '',
+                 paste(cfg$pat_covariate, collapse = ','),
+                 paste(cfg$imm_covariate, collapse = ','),
+                 ''),
+             Lables=
+               c('', '',
+                 pr.label(cfg$c2p_covariate, cfg$covariate_labels),
+                 pr.label(cfg$sus_p2p_covariate, cfg$covariate_labels),
+                 pr.label(cfg$inf_p2p_covariate, cfg$covariate_labels),
+                 '',
+                 pr.label(cfg$pat_covariate, cfg$covariate_labels),
+                 pr.label(cfg$imm_covariate, cfg$covariate_labels),
+                 ''))
+}
+
+# a function displaying equivalence classes in a more friendly way
+show_cfg_par_equiclass <- function(cfg) {
+  size <- sapply(cfg$par_equiclass, "[[", "size")
+  mem.lst <- sapply(cfg$par_equiclass, "[[", "member")
+  members <- sapply(mem.lst, paste, collapse = ", ")
+  label <- sapply(mem.lst, pr.label, labels=cfg$par_labels)
+  data.frame(size, members, label)
 }

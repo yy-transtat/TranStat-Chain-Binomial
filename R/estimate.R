@@ -14,14 +14,14 @@
 #' \preformatted{
 #' cfg       <- read_config(config_file)
 #' data_list <- read_population(cfg, names_tid = ..., names_tdp = ...)
-#' cfg       <- update_par_labels(cfg, data_list)
+#' cfg       <- update_var_par_labels(cfg, data_list)
 #' out       <- ChainBinomial(data_list, cfg)
 #' }
 #'
 #' @param data_list Named list returned by \code{\link{read_population}} or
 #'   \code{\link{gen_population}}.
 #' @param cfg Named list returned by \code{\link{read_config}}, optionally
-#'   updated with \code{\link{update_par_labels}}.
+#'   updated with \code{\link{update_var_par_labels}}.
 #' @param seed Integer. Random seed for Monte Carlo / MCEM sampling.
 #'   Default \code{12345678L}.
 #'
@@ -57,7 +57,7 @@
 #' }
 #'
 #' @seealso \code{\link{estimate_single}}, \code{\link{read_config}},
-#'   \code{\link{read_population}}, \code{\link{update_par_labels}}
+#'   \code{\link{read_population}}, \code{\link{update_var_par_labels}}
 #'
 #' @examples
 #' \dontrun{
@@ -65,7 +65,7 @@
 #'                          package = "ChainBinomial")
 #' cfg       <- read_config(cfg_file)
 #' data_list <- read_population(cfg)
-#' cfg       <- update_par_labels(cfg, data_list)
+#' cfg       <- update_var_par_labels(cfg, data_list)
 #' out       <- ChainBinomial(data_list, cfg)
 #' out$estimates
 #' out$SAR

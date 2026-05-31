@@ -281,20 +281,25 @@ estimate_single <- function(data_list, cfg,
         else paste0(prefix, seq_len(n))
     }
 
-    # Helper: global covariate index k (1-based) → column name from data_list
+    # Helper: global covariate index k (1-based) → label.
+    # Primary source: cfg$covariate_labels (set by update_var_par_labels()).
+    # Fallback: look up column names directly from data_list.
     .n_tic <- cfg$n_time_ind_covariate
     cov_label <- function(k) {
+        if (!is.null(cfg$covariate_labels) && k >= 1L &&
+                k <= length(cfg$covariate_labels))
+            return(cfg$covariate_labels[k])
         if (k <= .n_tic) {
             tic <- data_list$time_ind_covariate
             if (!is.null(tic) && ncol(tic) >= k + 1L)
                 return(names(tic)[k + 1L])
         } else {
             tdc <- data_list$time_dep_covariate
-            col <- k - .n_tic + 3L          # cols 1-3 are id/day_start/day_stop
+            col <- k - .n_tic + 3L
             if (!is.null(tdc) && ncol(tdc) >= col)
                 return(names(tdc)[col])
         }
-        paste0("x", k)                      # fallback
+        paste0("x", k)
     }
 
     n_base <- cfg$n_b_mode + cfg$n_p_mode + cfg$n_u_mode + cfg$n_q_mode

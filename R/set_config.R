@@ -184,10 +184,12 @@ set_config <- function(cfg,
     # 6.  Covariate specifications
     # -----------------------------------------------------------------------
 
-    # Build covariate name → global index lookup from data_list
-    .build_lookup <- function(dl) {
-        lookup <- integer(0L)
+    # Build covariate name → global index lookup.
+    # Priority: (1) data_list column names, (2) cfg_copy$covariate_labels.
+    .build_lookup <- function(dl, cfg_arg) {
         if (!is.null(dl)) {
+            # Build from data_list column names
+            lookup  <- integer(0L)
             tic_dl  <- dl$time_ind_covariate
             n_tic_l <- if (is.null(tic_dl)) 0L else ncol(tic_dl) - 1L
             if (!is.null(tic_dl) && n_tic_l > 0L)
@@ -201,10 +203,15 @@ set_config <- function(cfg,
                                 setNames(n_tic_l + seq_len(n_tdc_l),
                                          names(tdc_dl)[-(1:3)]))
             }
+            return(lookup)
         }
-        lookup
+        # Fall back to cfg$covariate_labels when data_list is absent
+        lbl <- cfg_arg$covariate_labels
+        if (!is.null(lbl) && length(lbl) > 0L)
+            return(setNames(seq_along(lbl), lbl))
+        integer(0L)
     }
-    cov_lookup <- .build_lookup(data_list)
+    cov_lookup <- .build_lookup(data_list, cfg_copy)
 
     .resolve_cov <- function(spec, arg_name) {
         if (is.character(spec)) {
@@ -345,10 +352,11 @@ set_config <- function(cfg,
     }
 
     # -----------------------------------------------------------------------
-    # 8.  Refresh par_labels when data_list is available
+    # 8.  Refresh covariate_labels and par_labels
+    #     Always call update_var_par_labels() so both label vectors stay
+    #     consistent with the (possibly updated) covariate specs.
     # -----------------------------------------------------------------------
-    if (!is.null(data_list))
-        cfg_copy <- update_par_labels(cfg_copy, data_list)
+    cfg_copy <- update_var_par_labels(cfg_copy, data_list)
 
     cfg_copy
 }

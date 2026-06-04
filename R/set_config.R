@@ -57,6 +57,13 @@
 #'   pathogenicity.
 #' @param imm_covariate Integer or character vector.  Covariates affecting
 #'   pre-season immunity.
+#' @param int_p2p_covariate List of interaction pairs.  Each element is a
+#'   length-2 vector specifying one susceptibility \eqn{\times} infectiousness
+#'   interaction.  Integer form \code{c(i, j)}: \eqn{i} is the position of the
+#'   susceptibility covariate within \code{sus_p2p_covariate}, and \eqn{j} is
+#'   the position within \code{inf_p2p_covariate}.  Character form
+#'   \code{c("sus_name", "inf_name")}: each name is matched by label against the
+#'   corresponding covariate array and its position is recorded.
 #' @param par_equiclass List of equivalence classes.  Each element is a list
 #'   with a \code{member} field (integer or character vector).
 #' @param \dots Additional named arguments corresponding to any other element
@@ -106,6 +113,7 @@ set_config <- function(cfg,
                        inf_p2p_covariate = NULL,
                        pat_covariate     = NULL,
                        imm_covariate     = NULL,
+                       int_p2p_covariate = NULL,
                        par_equiclass     = NULL,
                        ...) {
 
@@ -257,16 +265,59 @@ set_config <- function(cfg,
         cov_changed <- TRUE
     }
 
+    # Interaction pairs: each element is c(i, j) where i is the position in
+    # sus_p2p_covariate and j is the position in inf_p2p_covariate.
+    # Characters c("sus_name", "inf_name") are matched by label.
+    # Stored as global covariate indices: c(sus_cov[i], inf_cov[j]).
+    if (!is.null(int_p2p_covariate)) {
+        if (!is.list(int_p2p_covariate))
+            stop("int_p2p_covariate must be a list of length-2 vectors.")
+        sus_cov <- cfg_copy$sus_p2p_covariate
+        inf_cov <- cfg_copy$inf_p2p_covariate
+        resolved_int <- lapply(seq_along(int_p2p_covariate), function(k) {
+            pair <- int_p2p_covariate[[k]]
+            if (length(pair) != 2L)
+                stop("int_p2p_covariate element ", k, " must have length 2.")
+            if (is.character(pair)) {
+                sus_lbl <- cfg_copy$covariate_labels[sus_cov]
+                inf_lbl <- cfg_copy$covariate_labels[inf_cov]
+                i <- match(pair[1L], sus_lbl)
+                j <- match(pair[2L], inf_lbl)
+                if (is.na(i))
+                    stop("sus_p2p label '", pair[1L], "' not found ",
+                         "in sus_p2p_covariate for int_p2p_covariate element ", k,
+                         ".\nAvailable: ", paste(sus_lbl, collapse = ", "))
+                if (is.na(j))
+                    stop("inf_p2p label '", pair[2L], "' not found ",
+                         "in inf_p2p_covariate for int_p2p_covariate element ", k,
+                         ".\nAvailable: ", paste(inf_lbl, collapse = ", "))
+            } else {
+                i <- as.integer(pair[1L])
+                j <- as.integer(pair[2L])
+                if (i < 1L || i > length(sus_cov))
+                    stop("int_p2p_covariate element ", k, ": position i=", i,
+                         " out of range for sus_p2p_covariate (length ",
+                         length(sus_cov), ").")
+                if (j < 1L || j > length(inf_cov))
+                    stop("int_p2p_covariate element ", k, ": position j=", j,
+                         " out of range for inf_p2p_covariate (length ",
+                         length(inf_cov), ").")
+            }
+            c(sus_cov[i], inf_cov[j])
+        })
+        cfg_copy$interaction         <- resolved_int
+        cfg_copy$n_int_p2p_covariate <- as.integer(length(resolved_int))
+        cov_changed <- TRUE
+    }
+
     if (cov_changed) {
         cfg_copy$n_p2p_covariate <- as.integer(
             cfg_copy$n_sus_p2p_covariate +
             cfg_copy$n_inf_p2p_covariate +
             cfg_copy$n_int_p2p_covariate)
-        cfg_copy$n_covariate <- as.integer(
-            cfg_copy$n_c2p_covariate +
-            cfg_copy$n_p2p_covariate +
-            cfg_copy$n_pat_covariate +
-            cfg_copy$n_imm_covariate)
+        # n_covariate = n_time_ind_covariate + n_time_dep_covariate;
+        # it reflects the data layout, not the covariate-effect counts,
+        # so it is not recalculated here.
         cfg_copy$n_par <- as.integer(
             cfg_copy$n_b_mode        + cfg_copy$n_p_mode       +
             cfg_copy$n_u_mode        + cfg_copy$n_q_mode        +
@@ -333,12 +384,12 @@ show_cfg_covariates <- function(cfg) {
                c('time-independent', 'time-dependent',
                  'c2p', 'p2p susceptibility',
                  'p2p infectivity', 'p2p', 'pathogenicity',
-                 'preseason immunity', 'all covariates'),
+                 'preseason immunity'),
              Size=
                c(cfg$n_time_ind_covariate, cfg$n_time_dep_covariate,
                  cfg$n_c2p_covariate, cfg$n_sus_p2p_covariate,
-                 cfg$n_inf_p2p_covariate, cfg$n_p2p_covariate, cfg$n_pat_covariate,
-                 cfg$n_imm_covariate, cfg$n_covariate),
+                 cfg$n_inf_p2p_covariate, cfg$n_p2p_covariate,
+                 cfg$n_pat_covariate, cfg$n_imm_covariate),
              Variables=
                c('', '',
                  paste(cfg$c2p_covariate, collapse = ','),
@@ -346,8 +397,7 @@ show_cfg_covariates <- function(cfg) {
                  paste(cfg$inf_p2p_covariate, collapse = ','),
                  '',
                  paste(cfg$pat_covariate, collapse = ','),
-                 paste(cfg$imm_covariate, collapse = ','),
-                 ''),
+                 paste(cfg$imm_covariate, collapse = ',')),
              Lables=
                c('', '',
                  pr.label(cfg$c2p_covariate, cfg$covariate_labels),
@@ -355,8 +405,7 @@ show_cfg_covariates <- function(cfg) {
                  pr.label(cfg$inf_p2p_covariate, cfg$covariate_labels),
                  '',
                  pr.label(cfg$pat_covariate, cfg$covariate_labels),
-                 pr.label(cfg$imm_covariate, cfg$covariate_labels),
-                 ''))
+                 pr.label(cfg$imm_covariate, cfg$covariate_labels)))
 }
 
 # a function displaying equivalence classes in a more friendly way

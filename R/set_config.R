@@ -58,12 +58,13 @@
 #' @param imm_covariate Integer or character vector.  Covariates affecting
 #'   pre-season immunity.
 #' @param int_p2p_covariate List of interaction pairs.  Each element is a
-#'   length-2 vector specifying one susceptibility \eqn{\times} infectiousness
-#'   interaction.  Integer form \code{c(i, j)}: \eqn{i} is the position of the
-#'   susceptibility covariate within \code{sus_p2p_covariate}, and \eqn{j} is
-#'   the position within \code{inf_p2p_covariate}.  Character form
-#'   \code{c("sus_name", "inf_name")}: each name is matched by label against the
-#'   corresponding covariate array and its position is recorded.
+#'   length-2 vector \code{c(sus_idx, inf_idx)} giving the global covariate
+#'   indices (the sequential numbering across all time-independent then
+#'   time-dependent covariates) of the susceptibility and infectiousness
+#'   covariates forming the interaction.  Integer form: values are used
+#'   directly as global indices.  Character form \code{c("sus_name",
+#'   "inf_name")}: each name is looked up in \code{covariate_labels} and
+#'   resolved to its global index.
 #' @param par_equiclass List of equivalence classes.  Each element is a list
 #'   with a \code{member} field (integer or character vector).
 #' @param \dots Additional named arguments corresponding to any other element
@@ -265,45 +266,28 @@ set_config <- function(cfg,
         cov_changed <- TRUE
     }
 
-    # Interaction pairs: each element is c(i, j) where i is the position in
-    # sus_p2p_covariate and j is the position in inf_p2p_covariate.
-    # Characters c("sus_name", "inf_name") are matched by label.
-    # Stored as global covariate indices: c(sus_cov[i], inf_cov[j]).
+    # Interaction pairs: each element is c(sus_idx, inf_idx) where both values
+    # are global covariate indices (the same sequential numbering used for
+    # time-independent and time-dependent covariates across the whole dataset).
+    # Character form: each name is looked up in cov_lookup (name → global index).
+    # Integer form: values are already global indices — copy directly.
     if (!is.null(int_p2p_covariate)) {
         if (!is.list(int_p2p_covariate))
             stop("int_p2p_covariate must be a list of length-2 vectors.")
-        sus_cov <- cfg_copy$sus_p2p_covariate
-        inf_cov <- cfg_copy$inf_p2p_covariate
         resolved_int <- lapply(seq_along(int_p2p_covariate), function(k) {
             pair <- int_p2p_covariate[[k]]
             if (length(pair) != 2L)
                 stop("int_p2p_covariate element ", k, " must have length 2.")
             if (is.character(pair)) {
-                sus_lbl <- cfg_copy$covariate_labels[sus_cov]
-                inf_lbl <- cfg_copy$covariate_labels[inf_cov]
-                i <- match(pair[1L], sus_lbl)
-                j <- match(pair[2L], inf_lbl)
-                if (is.na(i))
-                    stop("sus_p2p label '", pair[1L], "' not found ",
-                         "in sus_p2p_covariate for int_p2p_covariate element ", k,
-                         ".\nAvailable: ", paste(sus_lbl, collapse = ", "))
-                if (is.na(j))
-                    stop("inf_p2p label '", pair[2L], "' not found ",
-                         "in inf_p2p_covariate for int_p2p_covariate element ", k,
-                         ".\nAvailable: ", paste(inf_lbl, collapse = ", "))
+                idx <- cov_lookup[pair]
+                bad <- pair[is.na(idx)]
+                if (length(bad) > 0L)
+                    stop("Covariate name(s) not found for int_p2p_covariate ",
+                         "element ", k, ": ", paste(bad, collapse = ", "))
+                as.integer(idx)
             } else {
-                i <- as.integer(pair[1L])
-                j <- as.integer(pair[2L])
-                if (i < 1L || i > length(sus_cov))
-                    stop("int_p2p_covariate element ", k, ": position i=", i,
-                         " out of range for sus_p2p_covariate (length ",
-                         length(sus_cov), ").")
-                if (j < 1L || j > length(inf_cov))
-                    stop("int_p2p_covariate element ", k, ": position j=", j,
-                         " out of range for inf_p2p_covariate (length ",
-                         length(inf_cov), ").")
+                as.integer(pair)   # already global covariate indices
             }
-            c(sus_cov[i], inf_cov[j])
         })
         cfg_copy$interaction         <- resolved_int
         cfg_copy$n_int_p2p_covariate <- as.integer(length(resolved_int))

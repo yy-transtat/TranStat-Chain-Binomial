@@ -8,11 +8,6 @@
 #' exceptions are \code{# input-path} and \code{# output-path}, whose values
 #' are read as whole lines.
 #'
-#' Parameter names (the short reminder strings such as \code{b}, \code{p},
-#' \code{age_sus}) that appear before numeric values in sections like
-#' \code{# parameters-for-simulation} and \code{# converge-criteria} are
-#' stored in companion \code{*_names} fields of the returned list.
-#'
 #' @param config_file Character. Path to the \code{config.file} to read.
 #'
 #' @return A named list with one element per \code{CFG_PARS} field that is
@@ -27,12 +22,13 @@
 #'     \code{list(size, member)}).}
 #'   \item{n_par_fixed, par_fixed_id, par_fixed_value}{Fixed parameters.}
 #'   \item{simulation, n_simulation, simulation_only}{Simulation switches.}
-#'   \item{sim_par_names, sim_par_effective}{Simulation parameter names and values.}
-#'   \item{converge_criteria_provided, converge_criteria_names, converge_criteria}{
-#'     Convergence tolerances.}
-#'   \item{n_ini, ini_par_provided, ini_par_names, ini_par_effective}{Initial estimates
-#'     (matrix with \code{n_ini} rows and \code{n_par_equiclass} columns).}
-#'   \item{search_bound_provided, search_bound_names, lower_search_bound, upper_search_bound}{
+#'   \item{sim_par_effective}{Simulation parameter values (numeric vector of length
+#'     \code{n_par_equiclass}).}
+#'   \item{converge_criteria_provided, converge_criteria}{Convergence tolerances.}
+#'   \item{n_ini, ini_par_provided, ini_par_effective}{Initial estimates
+#'     (\code{NULL} when \code{ini_par_provided == 0}; otherwise a matrix with
+#'     \code{n_ini} rows and \code{n_par_equiclass} columns).}
+#'   \item{search_bound_provided, lower_search_bound, upper_search_bound}{
 #'     Nelder-Mead search bounds.}
 #'   \item{EM}{Whether the EM algorithm is used (1) or not (0).}
 #' }
@@ -41,7 +37,6 @@
 #' cfg_file <- system.file("extdata", "CaseStudy1", "config.file", package = "ChainBinomial")
 #' cfg <- read_config(cfg_file)
 #' cfg$n_b_mode        # number of c2p transmission probabilities
-#' cfg$sim_par_names   # parameter names used in simulation
 #' cfg$sim_par_effective
 #'
 #' @export
@@ -285,14 +280,12 @@ read_config <- function(config_file) {
 
     # Simulation parameter values
     # Format: name_0  value_0 / name_1  value_1 / ...  (one pair per equivalence class)
-    cfg$sim_par_names     <- character(0)
     cfg$sim_par_effective <- double(0)
     s <- tok_stream("parameters-for-simulation")
     if (s$ok() && isTRUE(cfg$n_par_equiclass > 0L)) {
-        cfg$sim_par_names     <- character(cfg$n_par_equiclass)
         cfg$sim_par_effective <- double(cfg$n_par_equiclass)
         for (i in seq_len(cfg$n_par_equiclass)) {
-            cfg$sim_par_names[i]     <- s$gs()
+            s$gs()                           # skip name token
             cfg$sim_par_effective[i] <- s$gd()
         }
     }
@@ -307,12 +300,11 @@ read_config <- function(config_file) {
     #         name_0  tol_0 / ...  (one pair per equivalence class)
     s <- tok_stream("converge-criteria")
     cfg$converge_criteria_provided <- if (s$ok()) s$gi() else 0L
-    cfg$converge_criteria_names    <- character(cfg$n_par_equiclass)
     cfg$converge_criteria          <- double(cfg$n_par_equiclass)
     if (isTRUE(cfg$converge_criteria_provided == 1L) && isTRUE(cfg$n_par_equiclass > 0L)) {
         for (i in seq_len(cfg$n_par_equiclass)) {
-            cfg$converge_criteria_names[i] <- s$gs()
-            cfg$converge_criteria[i]       <- s$gd()
+            s$gs()                          # skip name token
+            cfg$converge_criteria[i] <- s$gd()
         }
     }
 
@@ -320,15 +312,14 @@ read_config <- function(config_file) {
     # Format: n_ini:ini_par_provided
     #         name_0  val_0 / ...  (repeated n_ini times, one row per set)
     s <- tok_stream("initial-estimates")
-    cfg$n_ini            <- if (s$ok()) s$gi() else 1L
-    cfg$ini_par_provided <- if (s$ok()) s$gi() else 0L
-    cfg$ini_par_names    <- character(cfg$n_par_equiclass)
-    cfg$ini_par_effective <- matrix(0.0, nrow = cfg$n_ini, ncol = cfg$n_par_equiclass)
+    cfg$n_ini             <- if (s$ok()) s$gi() else 1L
+    cfg$ini_par_provided  <- if (s$ok()) s$gi() else 0L
+    cfg$ini_par_effective <- NULL
     if (isTRUE(cfg$ini_par_provided == 1L) && isTRUE(cfg$n_par_equiclass > 0L)) {
+        cfg$ini_par_effective <- matrix(0.0, nrow = cfg$n_ini, ncol = cfg$n_par_equiclass)
         for (i in seq_len(cfg$n_ini)) {
             for (j in seq_len(cfg$n_par_equiclass)) {
-                nm <- s$gs()
-                if (i == 1L) cfg$ini_par_names[j] <- nm
+                s$gs()                              # skip name token
                 cfg$ini_par_effective[i, j] <- s$gd()
             }
         }
@@ -339,12 +330,11 @@ read_config <- function(config_file) {
     #         name_0  lower_0  upper_0 / ...
     s <- tok_stream("search-bounds")
     cfg$search_bound_provided <- if (s$ok()) s$gi() else 0L
-    cfg$search_bound_names    <- character(cfg$n_par_equiclass)
     cfg$lower_search_bound    <- double(cfg$n_par_equiclass)
     cfg$upper_search_bound    <- double(cfg$n_par_equiclass)
     if (isTRUE(cfg$search_bound_provided == 1L) && isTRUE(cfg$n_par_equiclass > 0L)) {
         for (i in seq_len(cfg$n_par_equiclass)) {
-            cfg$search_bound_names[i] <- s$gs()
+            s$gs()                              # skip name token
             cfg$lower_search_bound[i] <- s$gd()
             cfg$upper_search_bound[i] <- s$gd()
         }
@@ -542,6 +532,31 @@ read_config <- function(config_file) {
     #      after read_population() to replace placeholders with real names.
     # -----------------------------------------------------------------------
     cfg <- update_var_par_labels(cfg)
+
+    # -----------------------------------------------------------------------
+    # 17.  Validate numeric parameter values from config file
+    #      (probability parameters must be in (0,1); OR parameters must be > 0)
+    # -----------------------------------------------------------------------
+    n_ec <- cfg$n_par_equiclass
+    if (!is.null(n_ec) && n_ec > 0L) {
+        is_prob <- .is_prob_equiclass(cfg)
+
+        if (isTRUE(cfg$simulation == 1L) && length(cfg$sim_par_effective) == n_ec)
+            .check_par_values(as.double(cfg$sim_par_effective), is_prob,
+                              "sim_par_effective")
+
+        if (isTRUE(cfg$ini_par_provided == 1L) && !is.null(cfg$ini_par_effective))
+            for (i in seq_len(nrow(cfg$ini_par_effective)))
+                .check_par_values(cfg$ini_par_effective[i, ], is_prob,
+                                  paste0("ini_par_effective row ", i))
+
+        if (isTRUE(cfg$search_bound_provided == 1L)) {
+            .check_par_values(as.double(cfg$lower_search_bound), is_prob,
+                              "lower_search_bound")
+            .check_par_values(as.double(cfg$upper_search_bound), is_prob,
+                              "upper_search_bound")
+        }
+    }
 
     cfg
 }

@@ -202,10 +202,10 @@ write_config <- function(cfg, dir, file_name) {
 
     {
         n_ec <- as.integer(cfg$n_par_equiclass %||% 0L)
-        if (n_ec > 0L && length(cfg$sim_par_names) == n_ec)
+        if (n_ec > 0L && length(cfg$sim_par_effective) == n_ec)
             sec("parameters-for-simulation",
                 vapply(seq_len(n_ec),
-                       function(j) paste(cfg$sim_par_names[j],
+                       function(j) paste(paste0("class", j),
                                          fd(cfg$sim_par_effective[j])),
                        character(1L)))
         else
@@ -228,7 +228,7 @@ write_config <- function(cfg, dir, file_name) {
         body <- paste0(fi(prov), ":")
         if (isTRUE(prov == 1L) && n_ec > 0L)
             body <- c(body, vapply(seq_len(n_ec), function(j)
-                paste(cfg$converge_criteria_names[j],
+                paste(paste0("class", j),
                       fd(cfg$converge_criteria[j])),
                 character(1L)))
         sec("converge-criteria", body)
@@ -243,7 +243,7 @@ write_config <- function(cfg, dir, file_name) {
             for (i in seq_len(n_ini)) {
                 body <- c(body,
                           vapply(seq_len(n_ec),
-                                 function(j) paste(cfg$ini_par_names[j],
+                                 function(j) paste(paste0("class", j),
                                                    fd(cfg$ini_par_effective[i, j])),
                                  character(1L)))
                 if (i < n_ini) body <- c(body, "")
@@ -258,7 +258,7 @@ write_config <- function(cfg, dir, file_name) {
         body <- paste0(fi(prov), ":")
         if (isTRUE(prov == 1L) && n_ec > 0L)
             body <- c(body, vapply(seq_len(n_ec), function(j)
-                paste(cfg$search_bound_names[j],
+                paste(paste0("class", j),
                       fd(cfg$lower_search_bound[j]),
                       fd(cfg$upper_search_bound[j])),
                 character(1L)))

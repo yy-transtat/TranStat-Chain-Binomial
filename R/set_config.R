@@ -121,6 +121,14 @@ set_config <- function(cfg,
     stopifnot(!is.null(cfg), is.list(cfg))
     cfg_copy <- cfg                    # work on a copy
 
+    # Remove *_names fields — these are not stored in any C data structure and
+    # are superseded by the auto-generated "class1", "class2", ... labels that
+    # write_config() emits.
+    cfg_copy$sim_par_names           <- NULL
+    cfg_copy$converge_criteria_names <- NULL
+    cfg_copy$ini_par_names           <- NULL
+    cfg_copy$search_bound_names      <- NULL
+
     # -----------------------------------------------------------------------
     # 1.  Inferences from data_list
     # -----------------------------------------------------------------------
@@ -310,6 +318,13 @@ set_config <- function(cfg,
             cfg_copy$n_pat_covariate + cfg_copy$n_imm_covariate)
     }
 
+    # When any covariate specification changes the equivalence classes are
+    # invalidated — the caller must supply a new par_equiclass.
+    if (cov_changed && is.null(par_equiclass))
+        stop("par_equiclass must be specified when any covariate specification is ",
+             "changed (c2p_covariate, sus_p2p_covariate, inf_p2p_covariate, ",
+             "pat_covariate, imm_covariate, or int_p2p_covariate).")
+
     # -----------------------------------------------------------------------
     # 7.  par_equiclass  — members may be integer indices or parameter labels
     # -----------------------------------------------------------------------
@@ -353,6 +368,85 @@ set_config <- function(cfg,
     # 8.  Final label refresh (safety net — idempotent given the call above).
     # -----------------------------------------------------------------------
     cfg_copy <- update_var_par_labels(cfg_copy, data_list)
+
+    # -----------------------------------------------------------------------
+    # 9.  Validate dependent fields against n_par_equiclass
+    # -----------------------------------------------------------------------
+    n_ec <- cfg_copy$n_par_equiclass
+    if (!is.null(n_ec) && n_ec > 0L) {
+
+        is_prob <- .is_prob_equiclass(cfg_copy)
+
+        # sim_par_effective: required when simulation == 1
+        if (isTRUE(cfg_copy$simulation == 1L)) {
+            sv <- cfg_copy$sim_par_effective
+            if (is.null(sv) || length(sv) != n_ec)
+                stop("sim_par_effective must be a numeric vector of length ",
+                     n_ec, " (n_par_equiclass) when simulation == 1.")
+            .check_par_values(as.double(sv), is_prob, "sim_par_effective")
+        }
+
+        # ini_par_effective: normalize list → matrix when ini_par_provided == 1
+        if (isTRUE(cfg_copy$ini_par_provided == 1L)) {
+            ip <- cfg_copy$ini_par_effective
+            if (is.null(ip))
+                stop("ini_par_effective must be provided when ini_par_provided == 1.")
+            if (is.list(ip)) {
+                for (k in seq_along(ip))
+                    if (length(ip[[k]]) != n_ec)
+                        stop("ini_par_effective[[", k, "]] must have length ",
+                             n_ec, " (n_par_equiclass).")
+                ip <- do.call(rbind, lapply(ip, as.double))
+                cfg_copy$ini_par_effective <- ip
+                cfg_copy$n_ini             <- as.integer(nrow(ip))
+            } else if (is.numeric(ip)) {
+                if (is.vector(ip)) {
+                    if (length(ip) != n_ec)
+                        stop("ini_par_effective must have length ",
+                             n_ec, " (n_par_equiclass).")
+                    ip <- matrix(as.double(ip), nrow = 1L)
+                    cfg_copy$ini_par_effective <- ip
+                    cfg_copy$n_ini             <- 1L
+                } else if (is.matrix(ip)) {
+                    if (ncol(ip) != n_ec)
+                        stop("ini_par_effective must have ", n_ec,
+                             " columns (n_par_equiclass).")
+                }
+            } else {
+                stop("ini_par_effective must be a numeric vector, matrix, or ",
+                     "list of numeric vectors.")
+            }
+            for (i in seq_len(nrow(cfg_copy$ini_par_effective)))
+                .check_par_values(cfg_copy$ini_par_effective[i, ], is_prob,
+                                  paste0("ini_par_effective row ", i))
+        } else {
+            # ini_par_provided == 0: set to NULL
+            cfg_copy$ini_par_effective <- NULL
+            cfg_copy$n_ini             <- 1L
+        }
+
+        # converge_criteria: required when converge_criteria_provided == 1
+        if (isTRUE(cfg_copy$converge_criteria_provided == 1L)) {
+            cc <- cfg_copy$converge_criteria
+            if (is.null(cc) || length(cc) != n_ec)
+                stop("converge_criteria must be a numeric vector of length ",
+                     n_ec, " when converge_criteria_provided == 1.")
+        }
+
+        # lower/upper_search_bound: required when search_bound_provided == 1
+        if (isTRUE(cfg_copy$search_bound_provided == 1L)) {
+            lb <- cfg_copy$lower_search_bound
+            ub <- cfg_copy$upper_search_bound
+            if (is.null(lb) || length(lb) != n_ec)
+                stop("lower_search_bound must be a numeric vector of length ",
+                     n_ec, " when search_bound_provided == 1.")
+            if (is.null(ub) || length(ub) != n_ec)
+                stop("upper_search_bound must be a numeric vector of length ",
+                     n_ec, " when search_bound_provided == 1.")
+            .check_par_values(as.double(lb), is_prob, "lower_search_bound")
+            .check_par_values(as.double(ub), is_prob, "upper_search_bound")
+        }
+    }
 
     cfg_copy
 }
@@ -399,4 +493,46 @@ show_cfg_par_equiclass <- function(cfg) {
   members <- sapply(mem.lst, paste, collapse = ", ")
   label <- sapply(mem.lst, pr.label, labels=cfg$par_labels)
   data.frame(size, members, label)
+}
+
+# ---------------------------------------------------------------------------
+# Internal helpers for parameter-type classification and value validation.
+# Used by both set_config() and read_config() — not exported.
+# ---------------------------------------------------------------------------
+
+# Returns a logical vector of length n_par_equiclass:
+#   TRUE  = probability parameter (label matches "^[bpuq][0-9]*$") → (0, 1)
+#   FALSE = odds-ratio / covariate parameter → > 0
+.is_prob_equiclass <- function(cfg) {
+    n_ec <- if (is.null(cfg$n_par_equiclass)) 0L else cfg$n_par_equiclass
+    if (is.null(cfg$par_equiclass) || n_ec == 0L)
+        return(logical(0L))
+    par_lbl <- cfg$par_labels
+    vapply(cfg$par_equiclass, function(ec) {
+        lbl <- if (!is.null(par_lbl) && length(par_lbl) >= ec$member[1L])
+                   par_lbl[ec$member[1L]]
+               else ""
+        grepl("^[bpuq][0-9]*$", lbl)
+    }, logical(1L))
+}
+
+# Check that each value in vals satisfies the constraint implied by is_prob.
+# vals    : numeric vector, one value per equivalence class
+# is_prob : logical vector (TRUE = probability in (0,1); FALSE = OR > 0)
+# what    : label for error messages (e.g. "ini_par_effective row 1")
+.check_par_values <- function(vals, is_prob, what) {
+    for (k in seq_along(vals)) {
+        v <- vals[k]
+        if (is.na(v)) next
+        if (is_prob[k]) {
+            if (v <= 0 || v >= 1)
+                stop(what, " class ", k, ": value ", v,
+                     " is not in (0, 1) — expected a probability.")
+        } else {
+            if (v <= 0)
+                stop(what, " class ", k, ": value ", v,
+                     " is not > 0 — expected an odds ratio.")
+        }
+    }
+    invisible(NULL)
 }
